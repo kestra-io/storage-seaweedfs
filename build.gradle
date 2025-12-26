@@ -29,7 +29,7 @@ java {
 }
 
 group = "io.kestra.plugin"
-description = 'Plugin template for Kestra'
+description = 'SeaweedFS storage plugin for Kestra'
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
@@ -46,9 +46,10 @@ dependencies {
     compileOnly "org.projectlombok:lombok"
 
     // kestra
-    annotationProcessor group: "io.kestra", name: "processor", version: kestraVersion
     compileOnly group: "io.kestra", name: "core", version: kestraVersion
-    compileOnly group: "io.kestra", name: "script", version: kestraVersion
+    annotationProcessor group: "io.kestra", name: "processor", version: kestraVersion
+
+    implementation("com.seaweedfs:seaweedfs-client:4.00")
 }
 
 
@@ -174,9 +175,9 @@ tasks.withType(GenerateModuleMetadata).configureEach {
 jar {
     manifest {
         attributes(
-            "X-Kestra-Name": project.name,
-            "X-Kestra-Title": "Template",
-            "X-Kestra-Group": project.group + ".templates",
+            "X-Kestra-Name": "plugin-seaweedfs",
+            "X-Kestra-Title": "SeaweedFS",
+            "X-Kestra-Group": project.group + ".seaweedfs",
             "X-Kestra-Description": project.description,
             "X-Kestra-Version": project.version
         )
