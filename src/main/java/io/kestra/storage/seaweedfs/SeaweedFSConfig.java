@@ -3,9 +3,6 @@ package io.kestra.storage.seaweedfs;
 import io.kestra.core.models.annotations.PluginProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 
-/**
- * Configuration interface for SeaweedFS storage backend.
- */
 public interface SeaweedFSConfig {
 
     @PluginProperty
