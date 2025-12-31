@@ -27,7 +27,7 @@ services:
   seaweedfs-volume:
     image: chrislusf/seaweedfs:latest
     container_name: seaweedfs-volume
-    command: "volume -mserver=seaweedfs-master:9333 -ip.bind=0.0.0.0 -port=8080"
+    command: "volume -mserver=seaweedfs-master:9333 -ip.bind=0.0.0.0 -ip=seaweedfs-volume -publicUrl=localhost:8081 -port=8080"
     ports:
       - "8081:8080"
       - "18080:18080"

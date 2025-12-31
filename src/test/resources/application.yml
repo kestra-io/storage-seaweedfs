@@ -4,6 +4,9 @@ kestra:
   queue:
     type: memory
   storage:
-    type: local
-    local:
-      base-path: /tmp/unittest
+    type: seaweedfs
+    seaweedfs:
+      filer-host: localhost
+      filer-port: 18888
+      prefix: "kestra-test/"
+      replication: "000"
