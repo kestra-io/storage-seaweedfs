@@ -34,6 +34,7 @@ import java.util.*;
 @Plugin.Id("seaweedfs")
 public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     private static final Logger log = LoggerFactory.getLogger(SeaweedFSStorage.class);
+    private static final int MAX_OBJECT_NAME_LENGTH = 255;
 
     // Static block to register gRPC providers early
     // This fixes issues when META-INF/services files are not properly merged in shadow JARs
@@ -46,7 +47,6 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
      * file conflicts in shadow JARs.
      */
     private static void registerGrpcProviders() {
-        // Register DNS NameResolver (fixes "Address types of NameResolver 'unix' not supported")
         try {
             NameResolverRegistry.getDefaultRegistry().register(new DnsNameResolverProvider());
             log.debug("Registered DnsNameResolverProvider for gRPC");
@@ -54,7 +54,6 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             log.debug("DnsNameResolverProvider registration skipped: {}", e.getMessage());
         }
 
-        // Register PickFirst LoadBalancer (fixes "Could not find policy 'pick_first'")
         try {
             LoadBalancerRegistry.getDefaultRegistry().register(new PickFirstLoadBalancerProvider());
             log.debug("Registered PickFirstLoadBalancerProvider for gRPC");
@@ -100,10 +99,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         }
 
         try {
-            // Ensure gRPC providers are registered
             registerGrpcProviders();
-
-            // Initialize FilerClient with explicit host and port
             String target = filerHost + ":" + filerPort;
             log.info("Initializing SeaweedFS storage with filer: {}", target);
             this.filerClient = new FilerClient(filerHost, filerPort);
@@ -116,18 +112,15 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public void close() {
-        // FilerClient doesn't have an explicit close method
         if (filerClient != null) {
             filerClient = null;
         }
     }
 
-    /**
-     * Build the full path with tenant, namespace, and prefix.
-     */
-    private String buildPath(@Nullable String tenantId, @Nullable String namespace, URI uri) {
-        StringBuilder path = new StringBuilder("/");
+    public String getPath(@Nullable String tenantId, URI uri) {
+        StringBuilder path = new StringBuilder();
 
+        // Add prefix (without leading slash)
         if (prefix != null && !prefix.isEmpty()) {
             String prefixStr = prefix;
             if (prefixStr.startsWith("/")) {
@@ -139,12 +132,9 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             path.append(prefixStr);
         }
 
-        if (tenantId != null) {
+        // Add tenant if present
+        if (tenantId != null && !tenantId.isEmpty()) {
             path.append(tenantId).append("/");
-        }
-
-        if (namespace != null) {
-            path.append(namespace).append("/");
         }
 
         String uriPath = uri.getPath();
@@ -154,6 +144,13 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         path.append(uriPath);
 
         return path.toString();
+    }
+
+    /**
+     * Build path without tenant (for instance resources).
+     */
+    public String getPath(URI uri) {
+        return getPath(null, uri);
     }
 
     /**
@@ -169,72 +166,163 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         return new String[]{directory, filename};
     }
 
+    private URI limit(URI uri) throws IOException {
+        if (uri == null) {
+            return null;
+        }
+
+        String path = uri.getPath();
+        String objectName = path.contains("/") ? path.substring(path.lastIndexOf("/") + 1) : path;
+
+        if (objectName.length() > MAX_OBJECT_NAME_LENGTH) {
+            objectName = objectName.substring(objectName.length() - MAX_OBJECT_NAME_LENGTH + 6);
+            String prefix = UUID.randomUUID().toString().substring(0, 5).toLowerCase();
+            String newPath = (path.contains("/") ? path.substring(0, path.lastIndexOf("/") + 1) : "") + prefix + "-" + objectName;
+            try {
+                return new URI(uri.getScheme(), uri.getHost(), newPath, uri.getFragment());
+            } catch (Exception e) {
+                throw new IOException(e);
+            }
+        }
+        return uri;
+    }
+
     /**
-     * Limit filename to 255 characters to avoid filesystem limitations.
+     * Create parent directories for a path.
      */
-    private String limit(String filename) {
-        if (filename.length() <= 255) {
-            return filename;
+    private void mkdirs(String path) throws IOException {
+        if (!path.endsWith("/")) {
+            path = path.substring(0, path.lastIndexOf("/") + 1);
         }
 
-        String extension = "";
-        int dotIndex = filename.lastIndexOf('.');
-        if (dotIndex > 0) {
-            extension = filename.substring(dotIndex);
+        if (path.isEmpty() || path.equals("/")) {
+            return;
         }
 
-        int maxLength = 255 - extension.length() - 9;
-        String truncated = filename.substring(0, Math.max(maxLength, 0));
-        return UUID.randomUUID().toString().substring(0, 8) + "_" + truncated + extension;
+        try {
+            filerClient.mkdirs(path, 0755);
+        } catch (Exception e) {
+            log.debug("Failed to create directory (might already exist): {}", path, e);
+        }
     }
 
     @Override
     public InputStream get(@Nullable String tenantId, @Nullable String namespace, URI uri) throws IOException {
-        String path = buildPath(tenantId, namespace, uri);
+        String path = getPath(tenantId, uri);
+        return getFromSeaweedFS(uri, path);
+    }
+
+    @Override
+    public InputStream getInstanceResource(@Nullable String namespace, URI uri) throws IOException {
+        String path = getPath(uri);
+        return getFromSeaweedFS(uri, path);
+    }
+
+    private InputStream getFromSeaweedFS(URI uri, String path) throws IOException {
         try {
+            if (!path.startsWith("/")) {
+                path = "/" + path;
+            }
+            log.debug("Getting file from SeaweedFS: {}", path);
             return new SeaweedInputStream(filerClient, path);
         } catch (Exception e) {
             if (e.getMessage() != null && e.getMessage().contains("NOT_FOUND")) {
-                throw new FileNotFoundException("File not found: " + path);
+                throw new FileNotFoundException(uri.toString() + " (File not found)");
             }
             throw new IOException("Failed to get file from SeaweedFS: " + path, e);
         }
     }
 
     @Override
-    public InputStream getInstanceResource(@Nullable String namespace, URI uri) throws IOException {
-        return get(null, namespace, uri);
-    }
-
-    @Override
     public StorageObject getWithMetadata(@Nullable String tenantId, @Nullable String namespace, URI uri) throws IOException {
-        String path = buildPath(tenantId, namespace, uri);
+        String path = getPath(tenantId, uri);
 
         try {
             // Get file attributes to extract metadata
             FileAttributes attrs = getAttributes(tenantId, namespace, uri);
 
-            // Get file content
-            InputStream inputStream = new SeaweedInputStream(filerClient, path);
+            InputStream inputStream = getFromSeaweedFS(uri, path);
 
             return new StorageObject(attrs.getMetadata(), inputStream);
+        } catch (FileNotFoundException e) {
+            throw e;
         } catch (Exception e) {
-            if (e.getMessage() != null && e.getMessage().contains("NOT_FOUND")) {
-                throw new FileNotFoundException("File not found: " + path);
-            }
             throw new IOException("Failed to get file with metadata from SeaweedFS: " + path, e);
         }
     }
 
     @Override
+    public URI put(@Nullable String tenantId, @Nullable String namespace, URI uri, InputStream data) throws IOException {
+        URI limited = limit(uri);
+        return putToSeaweedFS(limited, new StorageObject(null, data), getPath(tenantId, limited));
+    }
+
+    @Override
+    public URI put(@Nullable String tenantId, @Nullable String namespace, URI uri, StorageObject storageObject) throws IOException {
+        URI limited = limit(uri);
+        return putToSeaweedFS(limited, storageObject, getPath(tenantId, limited));
+    }
+
+    @Override
+    public URI putInstanceResource(@Nullable String namespace, URI uri, InputStream data) throws IOException {
+        URI limited = limit(uri);
+        return putToSeaweedFS(limited, new StorageObject(null, data), getPath(limited));
+    }
+
+    @Override
+    public URI putInstanceResource(@Nullable String namespace, URI uri, StorageObject storageObject) throws IOException {
+        URI limited = limit(uri);
+        return putToSeaweedFS(limited, storageObject, getPath(limited));
+    }
+
+    private URI putToSeaweedFS(URI uri, StorageObject storageObject, String path) throws IOException {
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+
+        mkdirs(path);
+
+        log.debug("Putting file to SeaweedFS: {}", path);
+
+        try (InputStream data = storageObject.inputStream()) {
+            SeaweedOutputStream outputStream = new SeaweedOutputStream(filerClient, path);
+
+            if (replication != null && !replication.isEmpty()) {
+                outputStream.setReplication(replication);
+            }
+
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = data.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+            outputStream.close();
+
+            // TODO: Store metadata if needed
+            if (storageObject.metadata() != null && !storageObject.metadata().isEmpty()) {
+                log.debug("Metadata storage not yet implemented for SeaweedFS");
+            }
+
+        } catch (Exception e) {
+            throw new IOException("Failed to put file in SeaweedFS: " + path, e);
+        }
+        return URI.create("kestra://" + uri.getPath());
+    }
+
+    @Override
     public List<URI> allByPrefix(@Nullable String tenantId, @Nullable String namespace, URI prefix, boolean includeDirectories) throws IOException {
-        String basePath = buildPath(tenantId, namespace, prefix);
+        String internalStoragePrefix = getPath(tenantId, prefix);
+        if (!internalStoragePrefix.startsWith("/")) {
+            internalStoragePrefix = "/" + internalStoragePrefix;
+        }
+
         List<URI> results = new ArrayList<>();
-        collectAllFiles(basePath, includeDirectories, results);
+        collectAllFiles(internalStoragePrefix, includeDirectories, results, internalStoragePrefix, prefix.getPath());
         return results;
     }
 
-    private void collectAllFiles(String path, boolean includeDirectories, List<URI> results) throws IOException {
+    private void collectAllFiles(String path, boolean includeDirectories, List<URI> results,
+                                 String basePrefix, String uriPrefix) throws IOException {
         try {
             List<FilerProto.Entry> entries = filerClient.listEntries(path);
 
@@ -244,22 +332,29 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
                 if (isDir) {
                     if (includeDirectories) {
-                        results.add(URI.create(fullPath));
+                        String relativePath = fullPath.substring(basePrefix.length());
+                        results.add(URI.create("kestra://" + uriPrefix + relativePath));
                     }
-                    collectAllFiles(fullPath, includeDirectories, results);
+                    collectAllFiles(fullPath, includeDirectories, results, basePrefix, uriPrefix);
                 } else {
-                    results.add(URI.create(fullPath));
+                    String relativePath = fullPath.substring(basePrefix.length());
+                    results.add(URI.create("kestra://" + uriPrefix + relativePath));
                 }
             }
         } catch (Exception e) {
-            // Directory might not exist or be empty, just return
             log.debug("Failed to list directory: {}", path, e);
         }
     }
 
     @Override
     public List<FileAttributes> list(@Nullable String tenantId, @Nullable String namespace, URI uri) throws IOException {
-        String path = buildPath(tenantId, namespace, uri);
+        String path = getPath(tenantId, uri);
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+        if (!path.endsWith("/")) {
+            path = path + "/";
+        }
 
         try {
             List<FilerProto.Entry> entries = filerClient.listEntries(path);
@@ -267,13 +362,12 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
             for (FilerProto.Entry entry : entries) {
                 Map<String, String> metadata = new HashMap<>();
-                // Extract extended attributes if available
                 if (entry.getExtendedCount() > 0) {
                     entry.getExtendedMap().forEach((key, value) ->
                         metadata.put(key, new String(value.toByteArray())));
                 }
 
-                long lastModifiedTime = entry.getAttributes().getMtime() * 1000; // Convert to milliseconds
+                long lastModifiedTime = entry.getAttributes().getMtime() * 1000;
 
                 result.add(SeaweedFSFileAttributes.builder()
                     .fileName(entry.getName())
@@ -284,11 +378,14 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
                     .build());
             }
 
-            return result;
-        } catch (Exception e) {
-            if (e.getMessage() != null && e.getMessage().contains("NOT_FOUND")) {
-                throw new FileNotFoundException("Directory not found: " + path);
+            if (result.isEmpty()) {
+                this.getAttributes(tenantId, namespace, uri);
             }
+
+            return result;
+        } catch (FileNotFoundException e) {
+            throw e;
+        } catch (Exception e) {
             throw new IOException("Failed to list directory in SeaweedFS: " + path, e);
         }
     }
@@ -299,8 +396,44 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     }
 
     @Override
+    public boolean exists(@Nullable String tenantId, @Nullable String namespace, URI uri) {
+        try {
+            getAttributes(tenantId, namespace, uri);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @Override
+    public boolean existsInstanceResource(@Nullable String namespace, URI uri) {
+        try {
+            getInstanceAttributes(namespace, uri);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @Override
     public FileAttributes getAttributes(@Nullable String tenantId, @Nullable String namespace, URI uri) throws IOException {
-        String path = buildPath(tenantId, namespace, uri);
+        String path = getPath(tenantId, uri);
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+        return getFileAttributes(path, uri.toString());
+    }
+
+    @Override
+    public FileAttributes getInstanceAttributes(@Nullable String namespace, URI uri) throws IOException {
+        String path = getPath(uri);
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+        return getFileAttributes(path, uri.toString());
+    }
+
+    private FileAttributes getFileAttributes(String path, String uriString) throws IOException {
         String[] parts = splitPath(path);
         String directory = parts[0];
         String filename = parts[1];
@@ -309,13 +442,12 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             FilerProto.Entry entry = filerClient.lookupEntry(directory, filename);
 
             Map<String, String> metadata = new HashMap<>();
-            // Extract extended attributes if available
             if (entry.getExtendedCount() > 0) {
                 entry.getExtendedMap().forEach((key, value) ->
                     metadata.put(key, new String(value.toByteArray())));
             }
 
-            long lastModifiedTime = entry.getAttributes().getMtime() * 1000; // Convert to milliseconds
+            long lastModifiedTime = entry.getAttributes().getMtime() * 1000;
 
             return SeaweedFSFileAttributes.builder()
                 .fileName(entry.getName())
@@ -326,121 +458,37 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
                 .build();
         } catch (Exception e) {
             if (e.getMessage() != null && e.getMessage().contains("NOT_FOUND")) {
-                throw new FileNotFoundException("File not found: " + path);
+                throw new FileNotFoundException(uriString + " (File not found)");
             }
             throw new IOException("Failed to get attributes from SeaweedFS: " + path, e);
         }
     }
 
     @Override
-    public FileAttributes getInstanceAttributes(@Nullable String namespace, URI uri) throws IOException {
-        return getAttributes(null, namespace, uri);
-    }
-
-    @Override
-    public URI put(@Nullable String tenantId, @Nullable String namespace, URI uri, InputStream data) throws IOException {
-        return putInternal(tenantId, namespace, uri, data, null);
-    }
-
-    @Override
-    public URI put(@Nullable String tenantId, @Nullable String namespace, URI uri, StorageObject storageObject) throws IOException {
-        return putInternal(tenantId, namespace, uri, storageObject.inputStream(), storageObject.metadata());
-    }
-
-    @Override
-    public URI putInstanceResource(@Nullable String namespace, URI uri, InputStream data) throws IOException {
-        return put(null, namespace, uri, data);
-    }
-
-    @Override
-    public URI putInstanceResource(@Nullable String namespace, URI uri, StorageObject storageObject) throws IOException {
-        return put(null, namespace, uri, storageObject);
-    }
-
-    private URI putInternal(@Nullable String tenantId, @Nullable String namespace, URI uri,
-                            InputStream data, @Nullable Map<String, String> metadata) throws IOException {
-        String path = buildPath(tenantId, namespace, uri);
-        log.info("PUT: tenantId={}, namespace={}, uri={}, path={}", tenantId, namespace, uri, path);
-
-        // Apply filename length limit
-        String[] pathParts = path.split("/");
-        if (pathParts.length > 0) {
-            String lastPart = pathParts[pathParts.length - 1];
-            String limited = limit(lastPart);
-            if (!limited.equals(lastPart)) {
-                pathParts[pathParts.length - 1] = limited;
-                path = String.join("/", pathParts);
-                log.info("PUT: Filename limited from {} to {}, new path: {}", lastPart, limited, path);
-            }
-        }
-
-        // Ensure parent directory exists
-        String[] parts = splitPath(path);
-        String directory = parts[0];
-        log.info("PUT: Creating directory: {}", directory);
-        try {
-            filerClient.mkdirs(directory, 0755);
-        } catch (Exception e) {
-            log.debug("Failed to create directory (might already exist): {}", directory, e);
-        }
-
-        try {
-            log.info("PUT: Opening SeaweedOutputStream for path: {}", path);
-            SeaweedOutputStream outputStream = new SeaweedOutputStream(filerClient, path);
-
-            // Set replication if configured
-            if (replication != null && !replication.isEmpty()) {
-                outputStream.setReplication(replication);
-                log.info("PUT: Set replication to: {}", replication);
-            }
-
-            // Copy data to output stream
-            byte[] buffer = new byte[8192];
-            int bytesRead;
-            long totalBytes = 0;
-            while ((bytesRead = data.read(buffer)) != -1) {
-                outputStream.write(buffer, 0, bytesRead);
-                totalBytes += bytesRead;
-            }
-            outputStream.close();
-            log.info("PUT: Successfully wrote {} bytes to path: {}", totalBytes, path);
-
-            // TODO: Store metadata using updateEntry if needed
-            if (metadata != null && !metadata.isEmpty()) {
-                log.warn("Metadata storage not yet implemented for SeaweedFS");
-            }
-
-            // Return the original URI that was passed in, not the internal path
-            // This ensures consistency with how Kestra expects storage URIs to work
-            log.info("PUT: Returning URI: {}", uri);
-            return uri;
-        } catch (Exception e) {
-            log.error("PUT: Failed to write file to path: {}", path, e);
-            throw new IOException("Failed to put file in SeaweedFS: " + path, e);
-        }
-    }
-
-    @Override
     public boolean delete(@Nullable String tenantId, @Nullable String namespace, URI uri) throws IOException {
-        String path = buildPath(tenantId, namespace, uri);
+        FileAttributes fileAttributes;
+        try {
+            fileAttributes = getAttributes(tenantId, namespace, uri);
+        } catch (FileNotFoundException e) {
+            return false;
+        }
+
+        String path = getPath(tenantId, uri);
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+
+        if (fileAttributes.getType() == FileAttributes.FileType.Directory) {
+            URI dirUri = uri.getPath().endsWith("/") ? uri : URI.create(uri + "/");
+            return !deleteByPrefix(tenantId, namespace, dirUri).isEmpty();
+        }
 
         try {
-            // Check if it's a directory
-            boolean isDirectory = false;
-            try {
-                FileAttributes attrs = getAttributes(tenantId, namespace, uri);
-                isDirectory = attrs.getType() == FileAttributes.FileType.Directory;
-            } catch (FileNotFoundException e) {
-                return false;
-            }
-
-            filerClient.rm(path, isDirectory, true);
+            filerClient.rm(path, false, false);
             return true;
         } catch (Exception e) {
-            if (e.getMessage() != null && e.getMessage().contains("NOT_FOUND")) {
-                return false;
-            }
-            throw new IOException("Failed to delete file from SeaweedFS: " + path, e);
+            log.warn("Failed to delete file: {}", path, e);
+            return false;
         }
     }
 
@@ -451,22 +499,25 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public List<URI> deleteByPrefix(@Nullable String tenantId, @Nullable String namespace, URI storagePrefix) throws IOException {
-        List<URI> filesToDelete = allByPrefix(tenantId, namespace, storagePrefix, true);
+        List<URI> allFiles = allByPrefix(tenantId, namespace, storagePrefix, true);
 
-        if (filesToDelete.isEmpty()) {
+        if (allFiles.isEmpty()) {
             return Collections.emptyList();
         }
 
         List<URI> deletedFiles = new ArrayList<>();
-        Collections.reverse(filesToDelete);
+        // Delete in reverse order (deepest first)
+        Collections.reverse(allFiles);
 
-        for (URI fileUri : filesToDelete) {
+        for (URI fileUri : allFiles) {
             try {
-                boolean deleted = delete(tenantId, namespace, fileUri);
-                if (deleted) {
-                    deletedFiles.add(fileUri);
+                String path = getPath(tenantId, fileUri);
+                if (!path.startsWith("/")) {
+                    path = "/" + path;
                 }
-            } catch (IOException e) {
+                filerClient.rm(path, false, false);
+                deletedFiles.add(fileUri);
+            } catch (Exception e) {
                 log.warn("Failed to delete file during deleteByPrefix: {}", fileUri, e);
             }
         }
@@ -476,14 +527,20 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public URI createDirectory(@Nullable String tenantId, @Nullable String namespace, URI uri) throws IOException {
-        String path = buildPath(tenantId, namespace, uri);
+        String path = getPath(tenantId, uri);
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+        if (!path.endsWith("/")) {
+            path = path + "/";
+        }
 
         try {
             filerClient.mkdirs(path, 0755);
-            return uri;
         } catch (Exception e) {
             throw new IOException("Failed to create directory in SeaweedFS: " + path, e);
         }
+        return URI.create("kestra://" + uri.getPath());
     }
 
     @Override
@@ -493,23 +550,67 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public URI move(@Nullable String tenantId, @Nullable String namespace, URI from, URI to) throws IOException {
-        // SeaweedFS FilerClient doesn't have a native move operation
-        // We need to implement it as copy + delete
-        String fromPath = buildPath(tenantId, namespace, from);
-        String toPath = buildPath(tenantId, namespace, to);
+        String sourcePath = getPath(tenantId, from);
+        String destPath = getPath(tenantId, to);
+
+        if (!sourcePath.startsWith("/")) {
+            sourcePath = "/" + sourcePath;
+        }
+        if (!destPath.startsWith("/")) {
+            destPath = "/" + destPath;
+        }
 
         try {
-            // Copy file
-            try (InputStream in = new SeaweedInputStream(filerClient, fromPath)) {
-                put(tenantId, namespace, to, in);
+            FileAttributes attributes = getAttributes(tenantId, namespace, from);
+
+            if (attributes.getType() == FileAttributes.FileType.Directory) {
+                // Move directory contents
+                List<URI> files = allByPrefix(tenantId, namespace, from, true);
+                for (URI fileUri : files) {
+                    String relativePath = fileUri.getPath().substring(from.getPath().length());
+                    URI destFileUri = URI.create(to.getPath() + relativePath);
+                    moveSingleFile(getPath(tenantId, fileUri), getPath(tenantId, destFileUri));
+                }
+                deleteByPrefix(tenantId, namespace, from);
+            } else {
+                moveSingleFile(sourcePath, destPath);
             }
-
-            // Delete original
-            delete(tenantId, namespace, from);
-
-            return to;
+        } catch (FileNotFoundException e) {
+            throw e;
         } catch (Exception e) {
-            throw new IOException("Failed to move file in SeaweedFS from " + fromPath + " to " + toPath, e);
+            throw new IOException("Failed to move file in SeaweedFS from " + from + " to " + to, e);
+        }
+
+        return URI.create("kestra://" + to.getPath());
+    }
+
+    private void moveSingleFile(String source, String dest) throws IOException {
+        if (!source.startsWith("/")) {
+            source = "/" + source;
+        }
+        if (!dest.startsWith("/")) {
+            dest = "/" + dest;
+        }
+
+        mkdirs(dest);
+
+        try (InputStream in = new SeaweedInputStream(filerClient, source)) {
+            SeaweedOutputStream out = new SeaweedOutputStream(filerClient, dest);
+            if (replication != null && !replication.isEmpty()) {
+                out.setReplication(replication);
+            }
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = in.read(buffer)) != -1) {
+                out.write(buffer, 0, bytesRead);
+            }
+            out.close();
+        }
+
+        try {
+            filerClient.rm(source, false, false);
+        } catch (Exception e) {
+            log.warn("Failed to delete source file after move: {}", source, e);
         }
     }
 }

@@ -16,6 +16,11 @@ public class SeaweedFSFileAttributes implements FileAttributes {
     Map<String, String> metadata;
 
     @Override
+    public String getFileName() {
+        return fileName;
+    }
+
+    @Override
     public FileAttributes.FileType getType() {
         return isDirectory ? FileType.Directory : FileType.File;
     }
@@ -27,7 +32,6 @@ public class SeaweedFSFileAttributes implements FileAttributes {
 
     @Override
     public long getCreationTime() {
-        // SeaweedFS doesn't provide separate creation time, return last modified time
         return getLastModifiedTime();
     }
 
