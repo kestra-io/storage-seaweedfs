@@ -441,6 +441,10 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         try {
             FilerProto.Entry entry = filerClient.lookupEntry(directory, filename);
 
+            if (entry == null) {
+                throw new FileNotFoundException(uriString + " (File not found)");
+            }
+
             Map<String, String> metadata = new HashMap<>();
             if (entry.getExtendedCount() > 0) {
                 entry.getExtendedMap().forEach((key, value) ->
@@ -456,6 +460,8 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
                 .isDirectory(entry.getIsDirectory())
                 .metadata(metadata)
                 .build();
+        } catch (FileNotFoundException e) {
+            throw e;
         } catch (Exception e) {
             if (e.getMessage() != null && e.getMessage().contains("NOT_FOUND")) {
                 throw new FileNotFoundException(uriString + " (File not found)");
