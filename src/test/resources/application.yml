@@ -6,7 +6,7 @@ kestra:
   storage:
     type: seaweedfs
     seaweedfs:
-      filer-host: localhost
-      filer-port: 18888
+      filer-host: ${seaweedfs.filer.host:localhost}
+      filer-port: ${seaweedfs.filer.port:18888}
       prefix: "kestra-test/"
       replication: "000"

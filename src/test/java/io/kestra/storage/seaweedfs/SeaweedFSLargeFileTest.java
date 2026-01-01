@@ -28,17 +28,21 @@ class SeaweedFSLargeFileTest {
 
     @BeforeAll
     void setup() {
+        // Start SeaweedFS containers before all tests
+        System.out.println("\n=== Starting TestContainers Setup ===");
+        SeaweedFSTestContainers.start();
+
+        System.out.println("Creating SeaweedFS storage client...");
         storage = SeaweedFSStorage.builder()
-            .filerHost("localhost")
-            .filerPort(18888)
+            .filerHost(SeaweedFSTestContainers.getFilerHost())
+            .filerPort(SeaweedFSTestContainers.getFilerGrpcPort())
             .prefix("kestra-large-test/")
             .replication("000")
             .build();
-
-        // Initialize the storage to create filerClient
+        
         storage.init();
 
-        System.out.println("SeaweedFS Large File Tests");
+        System.out.println("\nSeaweedFS Large File Tests");
         System.out.println("Filer: " + storage.getFilerHost() + ":" + storage.getFilerPort());
         System.out.println("=================================================");
     }

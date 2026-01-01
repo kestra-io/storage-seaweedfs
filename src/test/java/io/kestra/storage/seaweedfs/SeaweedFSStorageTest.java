@@ -21,6 +21,18 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class SeaweedFSStorageTest extends StorageTestSuite {
 
+    static {
+        System.out.println("\n=== Starting TestContainers Setup (static initializer) ===");
+        SeaweedFSTestContainers.start();
+
+        System.setProperty("seaweedfs.filer.host", SeaweedFSTestContainers.getFilerHost());
+        System.setProperty("seaweedfs.filer.port", String.valueOf(SeaweedFSTestContainers.getFilerGrpcPort()));
+
+        System.out.println("Set system properties:");
+        System.out.println("  seaweedfs.filer.host=" + System.getProperty("seaweedfs.filer.host"));
+        System.out.println("  seaweedfs.filer.port=" + System.getProperty("seaweedfs.filer.port"));
+    }
+
     @Inject
     StorageInterface storageInterface;
 
@@ -29,6 +41,7 @@ class SeaweedFSStorageTest extends StorageTestSuite {
 
     @BeforeAll
     void setup() {
+
         System.out.println("SeaweedFS Storage Integration Tests");
         System.out.println("=================================================");
         System.out.println("Storage implementation: " + storageInterface.getClass().getSimpleName());
