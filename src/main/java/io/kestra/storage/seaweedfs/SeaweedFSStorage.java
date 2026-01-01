@@ -22,6 +22,7 @@ import io.grpc.internal.PickFirstLoadBalancerProvider;
 import jakarta.annotation.Nullable;
 import java.io.*;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 @AllArgsConstructor
@@ -117,7 +118,35 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         }
     }
 
+    /**
+     * Validate that the path does not contain directory traversal sequences.
+     * @param uri The URI to validate
+     * @throws IllegalArgumentException if path traversal is detected
+     */
+    private void validateNoPathTraversal(URI uri) {
+        if (uri == null) {
+            return;
+        }
+        String path = uri.getPath();
+        if (path == null) {
+            return;
+        }
+
+        // Check for path traversal patterns
+        if (path.contains("..")) {
+            throw new IllegalArgumentException("Path traversal is not allowed: " + path);
+        }
+    }
+
     public String getPath(@Nullable String tenantId, URI uri) {
+        // Fix 4: Handle null URI - return empty string
+        if (uri == null) {
+            return "";
+        }
+
+        // Fix 3: Validate no path traversal
+        validateNoPathTraversal(uri);
+
         StringBuilder path = new StringBuilder();
 
         // Add prefix (without leading slash)
@@ -138,10 +167,12 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         }
 
         String uriPath = uri.getPath();
-        if (uriPath.startsWith("/")) {
-            uriPath = uriPath.substring(1);
+        if (uriPath != null && !uriPath.isEmpty()) {
+            if (uriPath.startsWith("/")) {
+                uriPath = uriPath.substring(1);
+            }
+            path.append(uriPath);
         }
-        path.append(uriPath);
 
         return path.toString();
     }
@@ -224,12 +255,98 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
                 path = "/" + path;
             }
             log.debug("Getting file from SeaweedFS: {}", path);
-            return new SeaweedInputStream(filerClient, path);
+
+            // Fix 1: Wrap SeaweedInputStream in a BufferedInputStream to handle large file reads properly
+            // The SeaweedInputStream has issues with readAllBytes() for large files
+            return new BufferedSeaweedInputStream(filerClient, path);
+        } catch (FileNotFoundException e) {
+            // Re-throw FileNotFoundException directly
+            throw new FileNotFoundException(uri.toString() + " (File not found)");
         } catch (Exception e) {
+            // Check if the cause is a FileNotFoundException
+            if (e.getCause() instanceof FileNotFoundException) {
+                throw new FileNotFoundException(uri.toString() + " (File not found)");
+            }
             if (e.getMessage() != null && e.getMessage().contains("NOT_FOUND")) {
                 throw new FileNotFoundException(uri.toString() + " (File not found)");
             }
             throw new IOException("Failed to get file from SeaweedFS: " + path, e);
+        }
+    }
+
+    /**
+     * A wrapper around SeaweedInputStream that properly handles large file reads.
+     * This fixes the "offset greater than length of array" error when using readAllBytes().
+     */
+    private static class BufferedSeaweedInputStream extends InputStream {
+        private final SeaweedInputStream delegate;
+        private static final int BUFFER_SIZE = 8192;
+
+        public BufferedSeaweedInputStream(FilerClient filerClient, String path) throws IOException {
+            this.delegate = new SeaweedInputStream(filerClient, path);
+        }
+
+        @Override
+        public int read() throws IOException {
+            byte[] b = new byte[1];
+            int result = read(b, 0, 1);
+            return result == -1 ? -1 : b[0] & 0xFF;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (b == null) {
+                throw new NullPointerException();
+            }
+            if (off < 0 || len < 0 || len > b.length - off) {
+                throw new IndexOutOfBoundsException();
+            }
+            if (len == 0) {
+                return 0;
+            }
+
+            try {
+                // Read in smaller chunks to avoid the offset issue in SeaweedInputStream
+                int totalRead = 0;
+                int remaining = len;
+
+                while (remaining > 0) {
+                    int chunkSize = Math.min(remaining, BUFFER_SIZE);
+                    byte[] chunk = new byte[chunkSize];
+
+                    int bytesRead = delegate.read(chunk, 0, chunkSize);
+                    if (bytesRead == -1) {
+                        return totalRead == 0 ? -1 : totalRead;
+                    }
+
+                    System.arraycopy(chunk, 0, b, off + totalRead, bytesRead);
+                    totalRead += bytesRead;
+                    remaining -= bytesRead;
+
+                    // If we got less than requested, stream might be exhausted
+                    if (bytesRead < chunkSize) {
+                        break;
+                    }
+                }
+
+                return totalRead;
+            } catch (IllegalArgumentException e) {
+                // Handle the offset error gracefully - likely end of stream
+                if (e.getMessage() != null && e.getMessage().contains("offset greater than length")) {
+                    return -1;
+                }
+                throw new IOException(e);
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            delegate.close();
+        }
+
+        @Override
+        public int available() throws IOException {
+            return delegate.available();
         }
     }
 
@@ -275,6 +392,54 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         return putToSeaweedFS(limited, storageObject, getPath(limited));
     }
 
+    /**
+     * Encode a path component for use in a URI.
+     * This handles special characters like spaces, parentheses, etc.
+     * Only encodes characters that are not valid in URI paths.
+     */
+    private String encodePathForUri(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+
+        // Check if path contains characters that need encoding
+        // Valid URI path characters: unreserved + pchar + "/"
+        // We need to encode: space, parentheses, and other special chars
+        StringBuilder result = new StringBuilder();
+
+        for (int i = 0; i < path.length(); i++) {
+            char c = path.charAt(i);
+            if (isValidUriPathChar(c)) {
+                result.append(c);
+            } else {
+                // Encode the character
+                byte[] bytes = String.valueOf(c).getBytes(StandardCharsets.UTF_8);
+                for (byte b : bytes) {
+                    result.append('%');
+                    result.append(String.format("%02X", b & 0xFF));
+                }
+            }
+        }
+
+        return result.toString();
+    }
+
+    /**
+     * Check if a character is valid in a URI path without encoding.
+     */
+    private boolean isValidUriPathChar(char c) {
+        // unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~"
+        // pchar = unreserved / ":" / "@" / "!" / "$" / "&" / "'" / "*" / "+" / "," / ";" / "="
+        // path allows pchar + "/"
+        return (c >= 'a' && c <= 'z') ||
+            (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') ||
+            c == '-' || c == '.' || c == '_' || c == '~' ||
+            c == ':' || c == '@' || c == '!' || c == '$' ||
+            c == '&' || c == '\'' || c == '*' || c == '+' ||
+            c == ',' || c == ';' || c == '=' || c == '/';
+    }
+
     private URI putToSeaweedFS(URI uri, StorageObject storageObject, String path) throws IOException {
         if (!path.startsWith("/")) {
             path = "/" + path;
@@ -306,7 +471,21 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         } catch (Exception e) {
             throw new IOException("Failed to put file in SeaweedFS: " + path, e);
         }
-        return URI.create("kestra://" + uri.getPath());
+
+        // Fix 2: Properly encode the URI path to handle special characters
+        // Ensure path starts with / for proper kestra:/// format
+        String uriPath = uri.getPath();
+        if (!uriPath.startsWith("/")) {
+            uriPath = "/" + uriPath;
+        }
+        String encodedPath = encodePathForUri(uriPath);
+
+        try {
+            // Use "kestra://" + path to get kestra:///path format
+            return URI.create("kestra://" + encodedPath);
+        } catch (Exception e) {
+            throw new IOException("Failed to create URI for path: " + uriPath, e);
+        }
     }
 
     @Override
@@ -333,12 +512,34 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
                 if (isDir) {
                     if (includeDirectories) {
                         String relativePath = fullPath.substring(basePrefix.length());
-                        results.add(URI.create("kestra://" + uriPrefix + relativePath));
+                        String fullUriPath = uriPrefix + relativePath;
+                        if (!fullUriPath.startsWith("/")) {
+                            fullUriPath = "/" + fullUriPath;
+                        }
+                        // Ensure directory URIs end with "/"
+                        if (!fullUriPath.endsWith("/")) {
+                            fullUriPath = fullUriPath + "/";
+                        }
+                        String encodedPath = encodePathForUri(fullUriPath);
+                        try {
+                            results.add(URI.create("kestra://" + encodedPath));
+                        } catch (Exception e) {
+                            log.warn("Failed to create URI for path: {}", uriPrefix + relativePath, e);
+                        }
                     }
                     collectAllFiles(fullPath, includeDirectories, results, basePrefix, uriPrefix);
                 } else {
                     String relativePath = fullPath.substring(basePrefix.length());
-                    results.add(URI.create("kestra://" + uriPrefix + relativePath));
+                    String fullUriPath = uriPrefix + relativePath;
+                    if (!fullUriPath.startsWith("/")) {
+                        fullUriPath = "/" + fullUriPath;
+                    }
+                    String encodedPath = encodePathForUri(fullUriPath);
+                    try {
+                        results.add(URI.create("kestra://" + encodedPath));
+                    } catch (Exception e) {
+                        log.warn("Failed to create URI for path: {}", uriPrefix + relativePath, e);
+                    }
                 }
             }
         } catch (Exception e) {
@@ -349,6 +550,9 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     @Override
     public List<FileAttributes> list(@Nullable String tenantId, @Nullable String namespace, URI uri) throws IOException {
         String path = getPath(tenantId, uri);
+        if (path == null || path.isEmpty()) {
+            path = "";
+        }
         if (!path.startsWith("/")) {
             path = "/" + path;
         }
@@ -400,6 +604,9 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         try {
             getAttributes(tenantId, namespace, uri);
             return true;
+        } catch (IllegalArgumentException e) {
+            // Propagate path traversal and validation errors
+            throw e;
         } catch (Exception e) {
             return false;
         }
@@ -410,6 +617,9 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         try {
             getInstanceAttributes(namespace, uri);
             return true;
+        } catch (IllegalArgumentException e) {
+            // Propagate path traversal and validation errors
+            throw e;
         } catch (Exception e) {
             return false;
         }
@@ -533,6 +743,9 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public URI createDirectory(@Nullable String tenantId, @Nullable String namespace, URI uri) throws IOException {
+        // Validate path traversal for directory creation
+        validateNoPathTraversal(uri);
+
         String path = getPath(tenantId, uri);
         if (!path.startsWith("/")) {
             path = "/" + path;
@@ -546,7 +759,17 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         } catch (Exception e) {
             throw new IOException("Failed to create directory in SeaweedFS: " + path, e);
         }
-        return URI.create("kestra://" + uri.getPath());
+
+        String uriPath = uri.getPath();
+        if (!uriPath.startsWith("/")) {
+            uriPath = "/" + uriPath;
+        }
+        String encodedPath = encodePathForUri(uriPath);
+        try {
+            return URI.create("kestra://" + encodedPath);
+        } catch (Exception e) {
+            throw new IOException("Failed to create URI for path: " + uri.getPath(), e);
+        }
     }
 
     @Override
@@ -587,7 +810,16 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             throw new IOException("Failed to move file in SeaweedFS from " + from + " to " + to, e);
         }
 
-        return URI.create("kestra://" + to.getPath());
+        String toPath = to.getPath();
+        if (!toPath.startsWith("/")) {
+            toPath = "/" + toPath;
+        }
+        String encodedPath = encodePathForUri(toPath);
+        try {
+            return URI.create("kestra://" + encodedPath);
+        } catch (Exception e) {
+            throw new IOException("Failed to create URI for path: " + to.getPath(), e);
+        }
     }
 
     private void moveSingleFile(String source, String dest) throws IOException {

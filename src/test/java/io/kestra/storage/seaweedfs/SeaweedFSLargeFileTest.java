@@ -39,7 +39,7 @@ class SeaweedFSLargeFileTest {
             .prefix("kestra-large-test/")
             .replication("000")
             .build();
-        
+
         storage.init();
 
         System.out.println("\nSeaweedFS Large File Tests");
