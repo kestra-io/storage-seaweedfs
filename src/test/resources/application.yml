@@ -8,5 +8,5 @@ kestra:
     seaweedfs:
       filer-host: ${seaweedfs.filer.host:localhost}
       filer-port: ${seaweedfs.filer.port:18888}
-      prefix: "kestra-test/"
+      prefix: ""
       replication: "000"
