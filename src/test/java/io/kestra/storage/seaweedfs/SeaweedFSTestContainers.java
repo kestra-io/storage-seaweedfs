@@ -17,10 +17,11 @@ public class SeaweedFSTestContainers {
 
     private static GenericContainer<?> mainContainer;
 
-    public static final int MASTER_PORT = 19333;
-    public static final int VOLUME_PORT = 18080;
-    public static final int FILER_HTTP_PORT = 18888;
-    public static final int FILER_GRPC_PORT = 19888;
+    //  Use standard SeaweedFS ports for CI compatibility
+    public static final int MASTER_PORT = 9333;
+    public static final int VOLUME_PORT = 8080;
+    public static final int FILER_HTTP_PORT = 8888;
+    public static final int FILER_GRPC_PORT = 18888;
 
     public static synchronized void start() {
         if (mainContainer != null && mainContainer.isRunning()) {
@@ -28,23 +29,13 @@ public class SeaweedFSTestContainers {
         }
 
         try {
-            System.out.println("Starting SeaweedFS TestContainer (Fixed Ports)...");
+            boolean isLinux = System.getProperty("os.name").toLowerCase().contains("linux");
+            System.out.println("Starting SeaweedFS TestContainer (" + (isLinux ? "Host Network" : "Bridge Network") + ")...");
 
             mainContainer = new GenericContainer<>(SEAWEEDFS_IMAGE)
-                .withCreateContainerCmdModifier(cmd -> cmd.withHostConfig(
-                    new HostConfig().withPortBindings(
-                        // Map Host Port -> Container Port 1:1
-                        new PortBinding(Ports.Binding.bindPort(MASTER_PORT), new ExposedPort(MASTER_PORT)),
-                        new PortBinding(Ports.Binding.bindPort(VOLUME_PORT), new ExposedPort(VOLUME_PORT)),
-                        new PortBinding(Ports.Binding.bindPort(FILER_HTTP_PORT), new ExposedPort(FILER_HTTP_PORT)),
-                        new PortBinding(Ports.Binding.bindPort(FILER_GRPC_PORT), new ExposedPort(FILER_GRPC_PORT))
-                    )
-                ))
                 .withCommand(
                     "server",
-                    // advertise "localhost" so the Java Client (on host) can resolve it
                     "-ip=localhost",
-                    // bind to 0.0.0.0 so the Docker Gateway can bridge the connection
                     "-ip.bind=0.0.0.0",
                     "-dir=/data",
                     "-volume.max=100",
@@ -60,10 +51,30 @@ public class SeaweedFSTestContainers {
                         .withStartupTimeout(Duration.ofSeconds(60))
                 );
 
+            if (isLinux) {
+                // CI/Linux: Use host networking (no port mapping needed)
+                mainContainer.withNetworkMode("host");
+            } else {
+                // Mac/Windows: Use bridge with 1:1 port mapping
+                mainContainer
+                    .withExposedPorts(MASTER_PORT, VOLUME_PORT, FILER_HTTP_PORT, FILER_GRPC_PORT)
+                    .withCreateContainerCmdModifier(cmd -> cmd.withHostConfig(
+                        new HostConfig().withPortBindings(
+                            new PortBinding(Ports.Binding.bindPort(MASTER_PORT), new ExposedPort(MASTER_PORT)),
+                            new PortBinding(Ports.Binding.bindPort(VOLUME_PORT), new ExposedPort(VOLUME_PORT)),
+                            new PortBinding(Ports.Binding.bindPort(FILER_HTTP_PORT), new ExposedPort(FILER_HTTP_PORT)),
+                            new PortBinding(Ports.Binding.bindPort(FILER_GRPC_PORT), new ExposedPort(FILER_GRPC_PORT))
+                        )
+                    ));
+            }
+
             mainContainer.start();
 
-            System.out.println("SeaweedFS started!");
-            System.out.println("Filer HTTP: " + getFilerUrl());
+            // Wait for volume server to be fully ready
+            Thread.sleep(3000);
+
+            System.out.println("SeaweedFS started successfully!");
+            System.out.println("Filer gRPC: " + getFilerHost() + ":" + getFilerGrpcPort());
 
         } catch (Exception e) {
             stop();
@@ -79,19 +90,14 @@ public class SeaweedFSTestContainers {
     }
 
     public static String getFilerHost() {
-        return mainContainer.getHost();
+        return "localhost";
     }
 
     public static int getFilerGrpcPort() {
-        // Since we mapped 1:1, this is just FILER_GRPC_PORT
         return FILER_GRPC_PORT;
     }
 
     public static int getFilerHttpPort() {
         return FILER_HTTP_PORT;
-    }
-
-    public static String getFilerUrl() {
-        return String.format("http://%s:%d", getFilerHost(), getFilerHttpPort());
     }
 }
