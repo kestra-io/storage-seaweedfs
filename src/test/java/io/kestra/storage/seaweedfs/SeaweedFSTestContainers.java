@@ -44,16 +44,15 @@ public class SeaweedFSTestContainers {
                     "-filer",
                     "-filer.port=" + FILER_HTTP_PORT,
                     "-filer.port.grpc=" + FILER_GRPC_PORT
-                )
-                .waitingFor(
-                    Wait.forHttp("/?pretty=y")
-                        .forPort(FILER_HTTP_PORT)
-                        .withStartupTimeout(Duration.ofSeconds(60))
                 );
 
             if (isLinux) {
-                // CI/Linux: Use host networking (no port mapping needed)
-                mainContainer.withNetworkMode("host");
+                // CI/Linux: Use host networking (no port mapping)
+                mainContainer
+                    .withNetworkMode("host")
+                    // Host mode: just wait for log output, no port mapping
+                    .waitingFor(Wait.forLogMessage(".*Master.*started.*", 1)
+                        .withStartupTimeout(Duration.ofSeconds(60)));
             } else {
                 // Mac/Windows: Use bridge with 1:1 port mapping
                 mainContainer
@@ -65,13 +64,18 @@ public class SeaweedFSTestContainers {
                             new PortBinding(Ports.Binding.bindPort(FILER_HTTP_PORT), new ExposedPort(FILER_HTTP_PORT)),
                             new PortBinding(Ports.Binding.bindPort(FILER_GRPC_PORT), new ExposedPort(FILER_GRPC_PORT))
                         )
-                    ));
+                    ))
+                    // Bridge mode: wait for HTTP on the Filer port
+                    .waitingFor(Wait.forHttp("/?pretty=y")
+                        .forPort(FILER_HTTP_PORT)
+                        .withStartupTimeout(Duration.ofSeconds(60)));
             }
 
             mainContainer.start();
 
             // Wait for volume server to be fully ready
-            Thread.sleep(3000);
+            System.out.println("Waiting for volume server to be ready...");
+            Thread.sleep(5000);
 
             System.out.println("SeaweedFS started successfully!");
             System.out.println("Filer gRPC: " + getFilerHost() + ":" + getFilerGrpcPort());
