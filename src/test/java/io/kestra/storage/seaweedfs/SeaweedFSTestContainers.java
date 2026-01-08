@@ -17,7 +17,11 @@ public class SeaweedFSTestContainers {
 
     private static GenericContainer<?> mainContainer;
 
-    //  Use standard SeaweedFS ports for CI compatibility
+    // Fixed ports required for SeaweedFS:
+    // When clients upload files, the filer redirects them to the volume server's
+    // advertised address (set via -ip flag). With dynamic ports, SeaweedFS can't
+    // know the mapped port, so clients would get wrong addresses.
+    // See: https://github.com/seaweedfs/seaweedfs/issues/438
     public static final int MASTER_PORT = 9333;
     public static final int VOLUME_PORT = 8080;
     public static final int FILER_HTTP_PORT = 8888;
@@ -29,14 +33,13 @@ public class SeaweedFSTestContainers {
         }
 
         try {
-            boolean isLinux = System.getProperty("os.name").toLowerCase().contains("linux");
-            System.out.println("Starting SeaweedFS TestContainer (" + (isLinux ? "Host Network" : "Bridge Network") + ")...");
+            System.out.println("Starting SeaweedFS TestContainer (Fixed Port Mapping)...");
 
             mainContainer = new GenericContainer<>(SEAWEEDFS_IMAGE)
                 .withCommand(
                     "server",
-                    "-ip=localhost",
-                    "-ip.bind=0.0.0.0",
+                    "-ip=localhost",          // Advertise localhost to clients
+                    "-ip.bind=0.0.0.0",       // Listen on all interfaces inside container
                     "-dir=/data",
                     "-volume.max=100",
                     "-master.port=" + MASTER_PORT,
@@ -44,41 +47,29 @@ public class SeaweedFSTestContainers {
                     "-filer",
                     "-filer.port=" + FILER_HTTP_PORT,
                     "-filer.port.grpc=" + FILER_GRPC_PORT
-                );
-
-            if (isLinux) {
-                // CI/Linux: Use host networking (no port mapping)
-                mainContainer
-                    .withNetworkMode("host")
-                    // Host mode: just wait for log output, no port mapping
-                    .waitingFor(Wait.forLogMessage(".*Master.*started.*", 1)
-                        .withStartupTimeout(Duration.ofSeconds(60)));
-            } else {
-                // Mac/Windows: Use bridge with 1:1 port mapping
-                mainContainer
-                    .withExposedPorts(MASTER_PORT, VOLUME_PORT, FILER_HTTP_PORT, FILER_GRPC_PORT)
-                    .withCreateContainerCmdModifier(cmd -> cmd.withHostConfig(
-                        new HostConfig().withPortBindings(
-                            new PortBinding(Ports.Binding.bindPort(MASTER_PORT), new ExposedPort(MASTER_PORT)),
-                            new PortBinding(Ports.Binding.bindPort(VOLUME_PORT), new ExposedPort(VOLUME_PORT)),
-                            new PortBinding(Ports.Binding.bindPort(FILER_HTTP_PORT), new ExposedPort(FILER_HTTP_PORT)),
-                            new PortBinding(Ports.Binding.bindPort(FILER_GRPC_PORT), new ExposedPort(FILER_GRPC_PORT))
-                        )
-                    ))
-                    // Bridge mode: wait for HTTP on the Filer port
-                    .waitingFor(Wait.forHttp("/?pretty=y")
-                        .forPort(FILER_HTTP_PORT)
-                        .withStartupTimeout(Duration.ofSeconds(60)));
-            }
+                )
+                .withExposedPorts(MASTER_PORT, VOLUME_PORT, FILER_HTTP_PORT, FILER_GRPC_PORT)
+                .withCreateContainerCmdModifier(cmd -> cmd.withHostConfig(
+                    new HostConfig().withPortBindings(
+                        new PortBinding(Ports.Binding.bindPort(MASTER_PORT), new ExposedPort(MASTER_PORT)),
+                        new PortBinding(Ports.Binding.bindPort(VOLUME_PORT), new ExposedPort(VOLUME_PORT)),
+                        new PortBinding(Ports.Binding.bindPort(FILER_HTTP_PORT), new ExposedPort(FILER_HTTP_PORT)),
+                        new PortBinding(Ports.Binding.bindPort(FILER_GRPC_PORT), new ExposedPort(FILER_GRPC_PORT))
+                    )
+                ))
+                .waitingFor(Wait.forLogMessage(".*Start Seaweed Filer.*", 1)
+                    .withStartupTimeout(Duration.ofSeconds(120)));
 
             mainContainer.start();
 
-            // Wait for volume server to be fully ready
-            System.out.println("Waiting for volume server to be ready...");
+            // Wait for all services to be fully ready
+            System.out.println("Waiting for SeaweedFS services to initialize...");
             Thread.sleep(5000);
 
             System.out.println("SeaweedFS started successfully!");
-            System.out.println("Filer gRPC: " + getFilerHost() + ":" + getFilerGrpcPort());
+            System.out.println("  Filer HTTP: localhost:" + FILER_HTTP_PORT);
+            System.out.println("  Filer gRPC: localhost:" + FILER_GRPC_PORT);
+            System.out.println("  Volume server: localhost:" + VOLUME_PORT);
 
         } catch (Exception e) {
             stop();
