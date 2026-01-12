@@ -28,7 +28,7 @@ java {
     targetCompatibility = targetJavaVersion
 }
 
-group = "io.kestra.plugin"
+group = "io.kestra.storage"
 description = 'SeaweedFS storage plugin for Kestra'
 
 tasks.withType(JavaCompile).configureEach {
