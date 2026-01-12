@@ -181,7 +181,7 @@ jar {
         attributes(
             "X-Kestra-Name": "plugin-seaweedfs",
             "X-Kestra-Title": "SeaweedFS",
-            "X-Kestra-Group": project.group + ".seaweedfs",
+            "X-Kestra-Group": project.group + ".storage.seaweedfs",
             "X-Kestra-Description": project.description,
             "X-Kestra-Version": project.version
         )
