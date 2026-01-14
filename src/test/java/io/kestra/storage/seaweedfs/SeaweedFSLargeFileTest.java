@@ -54,22 +54,17 @@ class SeaweedFSLargeFileTest {
         String fileName = IdUtils.create() + "-10mb.bin";
         URI fileUri = URI.create("/" + fileName);
 
-        System.out.println("\nTest: Exactly 10MB file");
-        System.out.println("Creating 10MB file...");
 
         byte[] content = new byte[fileSize];
         Random random = new Random(999);
         random.nextBytes(content);
 
         String originalChecksum = calculateMD5(content);
-        System.out.println("Original MD5: " + originalChecksum);
 
         long uploadStart = System.currentTimeMillis();
         storage.put(MAIN_TENANT, null, fileUri, new ByteArrayInputStream(content));
         long uploadDuration = System.currentTimeMillis() - uploadStart;
 
-        System.out.println("Upload: " + uploadDuration + "ms (" +
-            String.format("%.2f MB/s", (fileSize / 1024.0 / 1024.0) / (uploadDuration / 1000.0)) + ")");
 
         // Download and verify
         long downloadStart = System.currentTimeMillis();
@@ -81,14 +76,12 @@ class SeaweedFSLargeFileTest {
                 String.format("%.2f MB/s", (fileSize / 1024.0 / 1024.0) / (downloadDuration / 1000.0)) + ")");
 
             String downloadedChecksum = calculateMD5(downloaded);
-            System.out.println("Downloaded MD5: " + downloadedChecksum);
 
             assertEquals(fileSize, downloaded.length, "File size should be exactly 10MB");
             assertEquals(originalChecksum, downloadedChecksum, "Content should match");
         }
 
         storage.delete(MAIN_TENANT, null, fileUri);
-        System.out.println("✓ 10MB file test passed");
     }
 
     @Test
@@ -98,8 +91,6 @@ class SeaweedFSLargeFileTest {
         String fileName = IdUtils.create() + "-25mb.bin";
         URI fileUri = URI.create("/" + fileName);
 
-        System.out.println("\nTest: 25MB file");
-        System.out.println("Creating 25MB file...");
 
         // Create file
         byte[] content = new byte[fileSize];
@@ -112,25 +103,19 @@ class SeaweedFSLargeFileTest {
         storage.put(MAIN_TENANT, null, fileUri, new ByteArrayInputStream(content));
         long uploadDuration = System.currentTimeMillis() - uploadStart;
 
-        System.out.println("Upload: " + uploadDuration + "ms (" +
-            String.format("%.2f MB/s", (fileSize / 1024.0 / 1024.0) / (uploadDuration / 1000.0)) + ")");
 
         long downloadStart = System.currentTimeMillis();
         try (InputStream is = storage.get(MAIN_TENANT, null, fileUri)) {
             byte[] downloaded = is.readAllBytes();
 
             long downloadDuration = System.currentTimeMillis() - downloadStart;
-            System.out.println("Download: " + downloadDuration + "ms (" +
-                String.format("%.2f MB/s", (fileSize / 1024.0 / 1024.0) / (downloadDuration / 1000.0)) + ")");
 
             String downloadedChecksum = calculateMD5(downloaded);
 
             assertEquals(fileSize, downloaded.length, "File size should be exactly 25MB");
             assertEquals(originalChecksum, downloadedChecksum, "Content should match");
         }
-
         storage.delete(MAIN_TENANT, null, fileUri);
-        System.out.println("✓ 25MB file test passed");
     }
 
     @Test
@@ -140,7 +125,6 @@ class SeaweedFSLargeFileTest {
         int numFiles = 5;
         String prefix = IdUtils.create() + "-seq";
 
-        System.out.println("\nTest: " + numFiles + " x 12MB files sequentially");
 
         long totalUploadTime = 0;
         long totalDownloadTime = 0;
@@ -165,15 +149,8 @@ class SeaweedFSLargeFileTest {
                 String downloadedChecksum = calculateMD5(downloaded);
                 assertEquals(checksum, downloadedChecksum, "File " + i + " content should match");
             }
-
             storage.delete(MAIN_TENANT, null, fileUri);
         }
-
-        System.out.println("Total upload time: " + totalUploadTime + "ms");
-        System.out.println("Total download time: " + totalDownloadTime + "ms");
-        System.out.println("Avg upload time: " + (totalUploadTime / numFiles) + "ms per file");
-        System.out.println("Avg download time: " + (totalDownloadTime / numFiles) + "ms per file");
-        System.out.println("✓ Sequential multiple files test passed");
     }
 
     @Test
@@ -187,7 +164,6 @@ class SeaweedFSLargeFileTest {
             20 * MEGA_BYTE
         };
 
-        System.out.println("\nTest: Various file sizes");
 
         for (int size : chunkSizes) {
             String fileName = IdUtils.create() + "-" + (size / MEGA_BYTE) + "mb.bin";
@@ -210,11 +186,8 @@ class SeaweedFSLargeFileTest {
 
                 System.out.println("  ✓ " + (size / MEGA_BYTE) + "MB file passed");
             }
-
             storage.delete(MAIN_TENANT, null, fileUri);
         }
-
-        System.out.println("✓ Various chunk sizes test passed");
     }
 
     @Test
@@ -245,11 +218,7 @@ class SeaweedFSLargeFileTest {
         }
 
         assertEquals(fileSize, totalRead, "Should read entire file via streaming");
-        System.out.println("Read " + chunks + " chunks of " + chunkSize + " bytes");
-        System.out.println("Total: " + totalRead + " bytes");
-
         storage.delete(MAIN_TENANT, null, fileUri);
-        System.out.println("✓ Streaming read test passed");
     }
 
     @Test
@@ -257,8 +226,6 @@ class SeaweedFSLargeFileTest {
     void testEmptyFile() throws Exception {
         String fileName = IdUtils.create() + "-empty.txt";
         URI fileUri = URI.create("/" + fileName);
-
-        System.out.println("\nTest: Empty file");
 
         storage.put(MAIN_TENANT, null, fileUri, new ByteArrayInputStream(new byte[0]));
 
@@ -268,9 +235,7 @@ class SeaweedFSLargeFileTest {
             byte[] downloaded = is.readAllBytes();
             assertEquals(0, downloaded.length, "Empty file should have 0 bytes");
         }
-
         storage.delete(MAIN_TENANT, null, fileUri);
-        System.out.println("✓ Empty file test passed");
     }
 
     @Test
@@ -282,8 +247,6 @@ class SeaweedFSLargeFileTest {
             "file.with.dots.txt",
             "file (with) parens.txt"
         };
-
-        System.out.println("\nTest: Special characters in filename");
 
         for (String name : specialNames) {
             String fileName = IdUtils.create() + "-" + name;
@@ -298,13 +261,9 @@ class SeaweedFSLargeFileTest {
                 String downloaded = new String(is.readAllBytes());
                 assertEquals(content, downloaded, "Content should match for: " + name);
             }
-
             storage.delete(MAIN_TENANT, null, fileUri);
-
             System.out.println("  ✓ " + name);
         }
-
-        System.out.println("✓ Special characters test passed");
     }
 
     @Test
@@ -312,8 +271,6 @@ class SeaweedFSLargeFileTest {
     void testDeleteAndReupload() throws Exception {
         String fileName = IdUtils.create() + "-reupload.txt";
         URI fileUri = URI.create("/" + fileName);
-
-        System.out.println("\nTest: Delete and re-upload same file");
 
         String content1 = "First version";
         storage.put(MAIN_TENANT, null, fileUri, new ByteArrayInputStream(content1.getBytes()));
@@ -334,7 +291,6 @@ class SeaweedFSLargeFileTest {
         }
 
         storage.delete(MAIN_TENANT, null, fileUri);
-        System.out.println("✓ Delete and re-upload test passed");
     }
 
     private String calculateMD5(byte[] content) throws Exception {
