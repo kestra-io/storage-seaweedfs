@@ -33,7 +33,6 @@ public class SeaweedFSTestContainers {
         }
 
         try {
-            System.out.println("Starting SeaweedFS TestContainer (Fixed Port Mapping)...");
 
             mainContainer = new GenericContainer<>(SEAWEEDFS_IMAGE)
                 .withCommand(
@@ -63,14 +62,7 @@ public class SeaweedFSTestContainers {
             mainContainer.start();
 
             // Wait for all services to be fully ready
-            System.out.println("Waiting for SeaweedFS services to initialize...");
             Thread.sleep(5000);
-
-            System.out.println("SeaweedFS started successfully!");
-            System.out.println("  Filer HTTP: localhost:" + FILER_HTTP_PORT);
-            System.out.println("  Filer gRPC: localhost:" + FILER_GRPC_PORT);
-            System.out.println("  Volume server: localhost:" + VOLUME_PORT);
-
         } catch (Exception e) {
             stop();
             throw new RuntimeException("Failed to start SeaweedFS", e);

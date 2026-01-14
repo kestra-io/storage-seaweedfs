@@ -29,10 +29,8 @@ class SeaweedFSLargeFileTest {
     @BeforeAll
     void setup() {
         // Start SeaweedFS containers before all tests
-        System.out.println("\n=== Starting TestContainers Setup ===");
         SeaweedFSTestContainers.start();
 
-        System.out.println("Creating SeaweedFS storage client...");
         storage = SeaweedFSStorage.builder()
             .filerHost(SeaweedFSTestContainers.getFilerHost())
             .filerPort(SeaweedFSTestContainers.getFilerGrpcPort())
@@ -42,9 +40,6 @@ class SeaweedFSLargeFileTest {
 
         storage.init();
 
-        System.out.println("\nSeaweedFS Large File Tests");
-        System.out.println("Filer: " + storage.getFilerHost() + ":" + storage.getFilerPort());
-        System.out.println("=================================================");
     }
 
     @Test
@@ -72,8 +67,6 @@ class SeaweedFSLargeFileTest {
             byte[] downloaded = is.readAllBytes();
 
             long downloadDuration = System.currentTimeMillis() - downloadStart;
-            System.out.println("Download: " + downloadDuration + "ms (" +
-                String.format("%.2f MB/s", (fileSize / 1024.0 / 1024.0) / (downloadDuration / 1000.0)) + ")");
 
             String downloadedChecksum = calculateMD5(downloaded);
 
@@ -262,7 +255,6 @@ class SeaweedFSLargeFileTest {
                 assertEquals(content, downloaded, "Content should match for: " + name);
             }
             storage.delete(MAIN_TENANT, null, fileUri);
-            System.out.println("  ✓ " + name);
         }
     }
 
