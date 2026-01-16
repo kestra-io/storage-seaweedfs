@@ -179,7 +179,7 @@ tasks.withType(GenerateModuleMetadata).configureEach {
 jar {
     manifest {
         attributes(
-            "X-Kestra-Name": "SeaweedFS",
+            "X-Kestra-Name": project.name,
             "X-Kestra-Title": "SeaweedFS",
             "X-Kestra-Group": project.group + ".storage.seaweedfs",
             "X-Kestra-Description": project.description,
