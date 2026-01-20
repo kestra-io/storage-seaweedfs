@@ -119,6 +119,8 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     @Builder.Default
     private String region = "us-east-1";
 
+    // ==================== Filer Mode Configuration (continued) ====================
+
     @Schema(
         title = "Storage prefix path",
         description = "The root prefix for all storage operations in FILER mode. " +
@@ -127,11 +129,15 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     @Builder.Default
     private String prefix = "";
 
+    // ==================== Internal Clients ====================
+
     @com.fasterxml.jackson.annotation.JsonIgnore
     private transient FilerClient filerClient;
 
     @com.fasterxml.jackson.annotation.JsonIgnore
     private transient S3Storage s3Storage;
+
+    // ==================== Initialization ====================
 
     @Override
     public void init() {
@@ -208,6 +214,8 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     private boolean isS3Mode() {
         return mode == StorageMode.S3 && s3Storage != null;
     }
+
+    // ==================== Path Utilities (Filer Mode) ====================
 
     private void validateNoPathTraversal(URI uri) {
         if (uri == null) return;
