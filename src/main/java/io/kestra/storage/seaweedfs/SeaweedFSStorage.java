@@ -5,7 +5,6 @@ import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.storages.FileAttributes;
 import io.kestra.core.storages.StorageInterface;
 import io.kestra.core.storages.StorageObject;
-import io.kestra.storage.s3.S3Storage;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import lombok.extern.jackson.Jacksonized;
@@ -39,10 +38,15 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     private static final int MAX_OBJECT_NAME_LENGTH = 255;
 
     // Static block to register gRPC providers early
+    // This fixes issues when META-INF/services files are not properly merged in shadow JARs
     static {
         registerGrpcProviders();
     }
 
+    /**
+     * Register required gRPC providers that may be missing due to META-INF/services
+     * file conflicts in shadow JARs.
+     */
     private static void registerGrpcProviders() {
         try {
             NameResolverRegistry.getDefaultRegistry().register(new DnsNameResolverProvider());
@@ -60,143 +64,50 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     }
 
     @Schema(
-        title = "Storage mode",
-        description = "The storage access mode: FILER for native gRPC access (best performance), " +
-            "or S3 for S3-compatible API access via SeaweedFS S3 gateway. Default: FILER"
-    )
-    @Builder.Default
-    private StorageMode mode = StorageMode.FILER;
-
-    @Schema(
         title = "SeaweedFS Filer server host",
-        description = "The hostname or IP address of the SeaweedFS filer server. " +
-            "Required for FILER mode. Example: localhost"
+        description = "The hostname or IP address of the SeaweedFS filer server (e.g., localhost)"
     )
     private String filerHost;
 
     @Schema(
         title = "SeaweedFS Filer gRPC port",
-        description = "The gRPC port of the SeaweedFS filer server. Default: 18888"
+        description = "The gRPC port of the SeaweedFS filer server (default: 18888)"
     )
     @Builder.Default
-    private Integer filerPort = 18888;
-
-    @Schema(
-        title = "Data replication setting",
-        description = "Replication setting for FILER mode. Default: 000"
-    )
-    @Builder.Default
-    private String replication = "000";
-
-    @Schema(
-        title = "S3 endpoint URL",
-        description = "The SeaweedFS S3 gateway endpoint URL. Required for S3 mode."
-    )
-    private String endpoint;
-
-    @Schema(
-        title = "S3 bucket name",
-        description = "The S3 bucket name for storing data. Required for S3 mode."
-    )
-    private String bucket;
-
-    @Schema(
-        title = "S3 access key",
-        description = "The S3 access key for authentication. Optional if no auth."
-    )
-    private String accessKey;
-
-    @Schema(
-        title = "S3 secret key",
-        description = "The S3 secret key for authentication. Optional if no auth."
-    )
-    private String secretKey;
-
-    @Schema(
-        title = "S3 region",
-        description = "The S3 region. Default: us-east-1"
-    )
-    @Builder.Default
-    private String region = "us-east-1";
-
-    // ==================== Filer Mode Configuration (continued) ====================
+    private int filerPort = 18888;
 
     @Schema(
         title = "Storage prefix path",
-        description = "The root prefix for all storage operations in FILER mode. " +
-            "Not used in S3 mode (use bucket name for namespacing instead)."
+        description = "The root prefix path for all storage operations (e.g., kestra/). Optional, defaults to no prefix."
     )
     @Builder.Default
     private String prefix = "";
 
-    // ==================== Internal Clients ====================
+    @Schema(
+        title = "Data center replication setting",
+        description = "Replication setting for data centers (e.g., 000 for no replication, 001 for 1 copy)"
+    )
+    @Builder.Default
+    private String replication = "000";
 
     @com.fasterxml.jackson.annotation.JsonIgnore
     private transient FilerClient filerClient;
 
-    @com.fasterxml.jackson.annotation.JsonIgnore
-    private transient S3Storage s3Storage;
-
-    // ==================== Initialization ====================
-
     @Override
     public void init() {
-        if (mode == StorageMode.S3) {
-            initS3Mode();
-        } else {
-            initFilerMode();
-        }
-    }
-
-    private void initFilerMode() {
         if (filerHost == null || filerHost.isEmpty()) {
-            throw new IllegalArgumentException("filerHost must be configured for FILER mode");
+            throw new IllegalArgumentException("Filer host must be configured for SeaweedFS storage");
         }
 
         try {
             registerGrpcProviders();
-            int port = filerPort != null ? filerPort : 18888;
-            String target = filerHost + ":" + port;
-            log.info("Initializing SeaweedFS storage in FILER mode with filer: {}", target);
-            this.filerClient = new FilerClient(filerHost, port);
-            log.info("SeaweedFS FILER mode initialized successfully");
+            String target = filerHost + ":" + filerPort;
+            log.info("Initializing SeaweedFS storage with filer: {}", target);
+            this.filerClient = new FilerClient(filerHost, filerPort);
+            log.info("SeaweedFS storage initialized successfully");
         } catch (Exception e) {
-            log.error("Failed to initialize SeaweedFS FILER mode", e);
+            log.error("Failed to initialize SeaweedFS storage", e);
             throw new IllegalArgumentException("Failed to initialize SeaweedFS storage: " + e.getMessage(), e);
-        }
-    }
-
-    private void initS3Mode() {
-        if (endpoint == null || endpoint.isEmpty()) {
-            throw new IllegalArgumentException("endpoint must be configured for S3 mode");
-        }
-        if (bucket == null || bucket.isEmpty()) {
-            throw new IllegalArgumentException("bucket must be configured for S3 mode");
-        }
-
-        try {
-            log.info("Initializing SeaweedFS storage in S3 mode with endpoint: {}, bucket: {}", endpoint, bucket);
-
-            var builder = S3Storage.builder()
-                .endpoint(endpoint)
-                .bucket(bucket)
-                .forcePathStyle(true);  // SeaweedFS requires path-style access
-
-            if (region != null && !region.isEmpty()) {
-                builder.region(region);
-            }
-
-            if (accessKey != null && !accessKey.isEmpty() && secretKey != null && !secretKey.isEmpty()) {
-                builder.accessKey(accessKey).secretKey(secretKey);
-            }
-
-            this.s3Storage = builder.build();
-            this.s3Storage.init();
-
-            log.info("SeaweedFS S3 mode initialized successfully");
-        } catch (Exception e) {
-            log.error("Failed to initialize SeaweedFS S3 mode", e);
-            throw new IllegalArgumentException("Failed to initialize SeaweedFS S3 storage: " + e.getMessage(), e);
         }
     }
 
@@ -205,44 +116,53 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         if (filerClient != null) {
             filerClient = null;
         }
-        if (s3Storage != null) {
-            s3Storage.close();
-            s3Storage = null;
-        }
     }
 
-    private boolean isS3Mode() {
-        return mode == StorageMode.S3 && s3Storage != null;
-    }
-
-    // ==================== Path Utilities (Filer Mode) ====================
-
+    /**
+     * Validate that the path does not contain directory traversal sequences.
+     * @param uri The URI to validate
+     * @throws IllegalArgumentException if path traversal is detected
+     */
     private void validateNoPathTraversal(URI uri) {
-        if (uri == null) return;
+        if (uri == null) {
+            return;
+        }
         String path = uri.getPath();
-        if (path != null && path.contains("..")) {
+        if (path == null) {
+            return;
+        }
+
+        // Check for path traversal patterns
+        if (path.contains("..")) {
             throw new IllegalArgumentException("Path traversal is not allowed: " + path);
         }
     }
 
+    /**
+     * Split path into directory and filename.
+     */
     private String[] splitPath(String fullPath) {
         int lastSlash = fullPath.lastIndexOf('/');
         if (lastSlash <= 0) {
             return new String[]{"/", fullPath};
         }
-        return new String[]{fullPath.substring(0, lastSlash), fullPath.substring(lastSlash + 1)};
+        String directory = fullPath.substring(0, lastSlash);
+        String filename = fullPath.substring(lastSlash + 1);
+        return new String[]{directory, filename};
     }
 
     private URI limit(URI uri) throws IOException {
-        if (uri == null) return null;
+        if (uri == null) {
+            return null;
+        }
 
         String path = uri.getPath();
         String objectName = path.contains("/") ? path.substring(path.lastIndexOf("/") + 1) : path;
 
         if (objectName.length() > MAX_OBJECT_NAME_LENGTH) {
             objectName = objectName.substring(objectName.length() - MAX_OBJECT_NAME_LENGTH + 6);
-            String uuidPrefix = UUID.randomUUID().toString().substring(0, 5).toLowerCase();
-            String newPath = (path.contains("/") ? path.substring(0, path.lastIndexOf("/") + 1) : "") + uuidPrefix + "-" + objectName;
+            String prefix = UUID.randomUUID().toString().substring(0, 5).toLowerCase();
+            String newPath = (path.contains("/") ? path.substring(0, path.lastIndexOf("/") + 1) : "") + prefix + "-" + objectName;
             try {
                 return new URI(uri.getScheme(), uri.getHost(), newPath, uri.getFragment());
             } catch (Exception e) {
@@ -252,11 +172,17 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         return uri;
     }
 
+    /**
+     * Create parent directories for a path.
+     */
     private void mkdirs(String path) throws IOException {
         if (!path.endsWith("/")) {
             path = path.substring(0, path.lastIndexOf("/") + 1);
         }
-        if (path.isEmpty() || path.equals("/")) return;
+
+        if (path.isEmpty() || path.equals("/")) {
+            return;
+        }
 
         try {
             filerClient.mkdirs(path, 0755);
@@ -266,83 +192,66 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     }
 
     private void storeMetadata(String path, Map<String, String> metadata) throws IOException {
-        if (metadata == null || metadata.isEmpty()) return;
+        if (metadata == null || metadata.isEmpty()) {
+            return;
+        }
 
         try {
             String[] parts = splitPath(path);
-            FilerProto.Entry entry = filerClient.lookupEntry(parts[0], parts[1]);
+            String directory = parts[0];
+            String filename = parts[1];
+
+            FilerProto.Entry entry = filerClient.lookupEntry(directory, filename);
             if (entry == null) {
                 log.warn("Cannot store metadata for non-existent file: {}", path);
                 return;
             }
 
+            // Build entry attributes with metadata
             FilerProto.Entry.Builder entryBuilder = entry.toBuilder();
             entryBuilder.clearExtended();
+
             for (Map.Entry<String, String> metaEntry : metadata.entrySet()) {
                 entryBuilder.putExtended(
                     metaEntry.getKey(),
                     com.google.protobuf.ByteString.copyFrom(metaEntry.getValue().getBytes(StandardCharsets.UTF_8))
                 );
             }
-            filerClient.updateEntry(parts[0], entryBuilder.build());
+
+            filerClient.updateEntry(directory, entryBuilder.build());
             log.debug("Stored {} metadata entries for: {}", metadata.size(), path);
         } catch (Exception e) {
             log.warn("Failed to store metadata for: {}", path, e);
         }
     }
 
-    private String encodePathForUri(String path) {
-        if (path == null || path.isEmpty()) return path;
-
-        StringBuilder result = new StringBuilder();
-        for (int i = 0; i < path.length(); i++) {
-            char c = path.charAt(i);
-            if (isValidUriPathChar(c)) {
-                result.append(c);
-            } else {
-                byte[] bytes = String.valueOf(c).getBytes(StandardCharsets.UTF_8);
-                for (byte b : bytes) {
-                    result.append('%');
-                    result.append(String.format("%02X", b & 0xFF));
-                }
-            }
-        }
-        return result.toString();
-    }
-
-    private boolean isValidUriPathChar(char c) {
-        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-            c == '-' || c == '.' || c == '_' || c == '~' || c == ':' || c == '@' ||
-            c == '!' || c == '$' || c == '&' || c == '\'' || c == '*' || c == '+' ||
-            c == ',' || c == ';' || c == '=' || c == '/';
-    }
-
     @Override
     public InputStream get(String tenantId, @Nullable String namespace, URI uri) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.get(tenantId, namespace, uri);
-        }
-        return getFromFiler(uri, getPath(tenantId, uri));
+        String path = getPath(tenantId, uri);
+        return getFromSeaweedFS(uri, path);
     }
 
     @Override
     public InputStream getInstanceResource(String namespace, URI uri) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.getInstanceResource(namespace, uri);
-        }
-        return getFromFiler(uri, getPath(uri));
+        String path = getPath(uri);
+        return getFromSeaweedFS(uri, path);
     }
 
-    private InputStream getFromFiler(URI uri, String path) throws IOException {
+    private InputStream getFromSeaweedFS(URI uri, String path) throws IOException {
         try {
-            if (!path.startsWith("/")) path = "/" + path;
-            log.debug("Getting file from SeaweedFS Filer: {}", path);
+            if (!path.startsWith("/")) {
+                path = "/" + path;
+            }
+            log.debug("Getting file from SeaweedFS: {}", path);
+
             return new BufferedSeaweedInputStream(filerClient, path);
         } catch (FileNotFoundException e) {
             throw new FileNotFoundException(uri.toString() + " (File not found)");
         } catch (Exception e) {
-            if (e.getCause() instanceof FileNotFoundException ||
-                (e.getMessage() != null && e.getMessage().contains("NOT_FOUND"))) {
+            if (e.getCause() instanceof FileNotFoundException) {
+                throw new FileNotFoundException(uri.toString() + " (File not found)");
+            }
+            if (e.getMessage() != null && e.getMessage().contains("NOT_FOUND")) {
                 throw new FileNotFoundException(uri.toString() + " (File not found)");
             }
             throw new IOException("Failed to get file from SeaweedFS: " + path, e);
@@ -366,25 +275,39 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
         @Override
         public int read(byte[] b, int off, int len) throws IOException {
-            if (b == null) throw new NullPointerException();
-            if (off < 0 || len < 0 || len > b.length - off) throw new IndexOutOfBoundsException();
-            if (len == 0) return 0;
+            if (b == null) {
+                throw new NullPointerException();
+            }
+            if (off < 0 || len < 0 || len > b.length - off) {
+                throw new IndexOutOfBoundsException();
+            }
+            if (len == 0) {
+                return 0;
+            }
 
             try {
+                // Read in smaller chunks to avoid the offset issue in SeaweedInputStream
                 int totalRead = 0;
                 int remaining = len;
 
                 while (remaining > 0) {
                     int chunkSize = Math.min(remaining, BUFFER_SIZE);
                     byte[] chunk = new byte[chunkSize];
+
                     int bytesRead = delegate.read(chunk, 0, chunkSize);
-                    if (bytesRead == -1) return totalRead == 0 ? -1 : totalRead;
+                    if (bytesRead == -1) {
+                        return totalRead == 0 ? -1 : totalRead;
+                    }
 
                     System.arraycopy(chunk, 0, b, off + totalRead, bytesRead);
                     totalRead += bytesRead;
                     remaining -= bytesRead;
-                    if (bytesRead < chunkSize) break;
+
+                    if (bytesRead < chunkSize) {
+                        break;
+                    }
                 }
+
                 return totalRead;
             } catch (IllegalArgumentException e) {
                 if (e.getMessage() != null && e.getMessage().contains("offset greater than length")) {
@@ -395,67 +318,113 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         }
 
         @Override
-        public void close() throws IOException { delegate.close(); }
+        public void close() throws IOException {
+            delegate.close();
+        }
 
         @Override
-        public int available() throws IOException { return delegate.available(); }
+        public int available() throws IOException {
+            return delegate.available();
+        }
     }
 
     @Override
     public StorageObject getWithMetadata(String tenantId, @Nullable String namespace, URI uri) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.getWithMetadata(tenantId, namespace, uri);
-        }
-
         String path = getPath(tenantId, uri);
-        FileAttributes attrs = getAttributes(tenantId, namespace, uri);
-        InputStream inputStream = getFromFiler(uri, path);
-        return new StorageObject(attrs.getMetadata(), inputStream);
+
+        try {
+            FileAttributes attrs = getAttributes(tenantId, namespace, uri);
+
+            InputStream inputStream = getFromSeaweedFS(uri, path);
+
+            return new StorageObject(attrs.getMetadata(), inputStream);
+        } catch (FileNotFoundException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("Failed to get file with metadata from SeaweedFS: " + path, e);
+        }
     }
 
     @Override
     public URI put(String tenantId, @Nullable String namespace, URI uri, InputStream data) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.put(tenantId, namespace, uri, data);
-        }
         URI limited = limit(uri);
-        return putToFiler(limited, new StorageObject(null, data), getPath(tenantId, limited));
+        return putToSeaweedFS(limited, new StorageObject(null, data), getPath(tenantId, limited));
     }
 
     @Override
     public URI put(String tenantId, @Nullable String namespace, URI uri, StorageObject storageObject) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.put(tenantId, namespace, uri, storageObject);
-        }
         URI limited = limit(uri);
-        return putToFiler(limited, storageObject, getPath(tenantId, limited));
+        return putToSeaweedFS(limited, storageObject, getPath(tenantId, limited));
     }
 
     @Override
     public URI putInstanceResource(@Nullable String namespace, URI uri, InputStream data) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.putInstanceResource(namespace, uri, data);
-        }
         URI limited = limit(uri);
-        return putToFiler(limited, new StorageObject(null, data), getPath(limited));
+        return putToSeaweedFS(limited, new StorageObject(null, data), getPath(limited));
     }
 
     @Override
     public URI putInstanceResource(@Nullable String namespace, URI uri, StorageObject storageObject) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.putInstanceResource(namespace, uri, storageObject);
-        }
         URI limited = limit(uri);
-        return putToFiler(limited, storageObject, getPath(limited));
+        return putToSeaweedFS(limited, storageObject, getPath(limited));
     }
 
-    private URI putToFiler(URI uri, StorageObject storageObject, String path) throws IOException {
-        if (!path.startsWith("/")) path = "/" + path;
+    /**
+     * Encode a path component for use in a URI.
+     * This handles special characters like spaces, parentheses, etc.
+     * Only encodes characters that are not valid in URI paths.
+     */
+    private String encodePathForUri(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+
+        StringBuilder result = new StringBuilder();
+
+        for (int i = 0; i < path.length(); i++) {
+            char c = path.charAt(i);
+            if (isValidUriPathChar(c)) {
+                result.append(c);
+            } else {
+                byte[] bytes = String.valueOf(c).getBytes(StandardCharsets.UTF_8);
+                for (byte b : bytes) {
+                    result.append('%');
+                    result.append(String.format("%02X", b & 0xFF));
+                }
+            }
+        }
+
+        return result.toString();
+    }
+
+    /**
+     * Check if a character is valid in a URI path without encoding.
+     */
+    private boolean isValidUriPathChar(char c) {
+        // unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~"
+        // pchar = unreserved / ":" / "@" / "!" / "$" / "&" / "'" / "*" / "+" / "," / ";" / "="
+        // path allows pchar + "/"
+        return (c >= 'a' && c <= 'z') ||
+            (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') ||
+            c == '-' || c == '.' || c == '_' || c == '~' ||
+            c == ':' || c == '@' || c == '!' || c == '$' ||
+            c == '&' || c == '\'' || c == '*' || c == '+' ||
+            c == ',' || c == ';' || c == '=' || c == '/';
+    }
+
+    private URI putToSeaweedFS(URI uri, StorageObject storageObject, String path) throws IOException {
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+
         mkdirs(path);
-        log.debug("Putting file to SeaweedFS Filer: {}", path);
+
+        log.debug("Putting file to SeaweedFS: {}", path);
 
         try (InputStream data = storageObject.inputStream()) {
             SeaweedOutputStream outputStream = new SeaweedOutputStream(filerClient, path);
+
             if (replication != null && !replication.isEmpty()) {
                 outputStream.setReplication(replication);
             }
@@ -470,12 +439,15 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             if (storageObject.metadata() != null && !storageObject.metadata().isEmpty()) {
                 storeMetadata(path, storageObject.metadata());
             }
+
         } catch (Exception e) {
             throw new IOException("Failed to put file in SeaweedFS: " + path, e);
         }
 
         String uriPath = uri.getPath();
-        if (!uriPath.startsWith("/")) uriPath = "/" + uriPath;
+        if (!uriPath.startsWith("/")) {
+            uriPath = "/" + uriPath;
+        }
         String encodedPath = encodePathForUri(uriPath);
 
         try {
@@ -487,12 +459,10 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public List<URI> allByPrefix(String tenantId, @Nullable String namespace, URI prefix, boolean includeDirectories) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.allByPrefix(tenantId, namespace, prefix, includeDirectories);
-        }
-
         String internalStoragePrefix = getPath(tenantId, prefix);
-        if (!internalStoragePrefix.startsWith("/")) internalStoragePrefix = "/" + internalStoragePrefix;
+        if (!internalStoragePrefix.startsWith("/")) {
+            internalStoragePrefix = "/" + internalStoragePrefix;
+        }
 
         List<URI> results = new ArrayList<>();
         collectAllFiles(internalStoragePrefix, includeDirectories, results, internalStoragePrefix, prefix.getPath());
@@ -512,8 +482,13 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
                     if (includeDirectories) {
                         String relativePath = fullPath.substring(basePrefix.length());
                         String fullUriPath = uriPrefix + relativePath;
-                        if (!fullUriPath.startsWith("/")) fullUriPath = "/" + fullUriPath;
-                        if (!fullUriPath.endsWith("/")) fullUriPath = fullUriPath + "/";
+                        if (!fullUriPath.startsWith("/")) {
+                            fullUriPath = "/" + fullUriPath;
+                        }
+                        // Directory URIs should have trailing slashes when included in lists
+                        if (!fullUriPath.endsWith("/")) {
+                            fullUriPath = fullUriPath + "/";
+                        }
                         String encodedPath = encodePathForUri(fullUriPath);
                         try {
                             results.add(URI.create("kestra://" + encodedPath));
@@ -525,7 +500,9 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
                 } else {
                     String relativePath = fullPath.substring(basePrefix.length());
                     String fullUriPath = uriPrefix + relativePath;
-                    if (!fullUriPath.startsWith("/")) fullUriPath = "/" + fullUriPath;
+                    if (!fullUriPath.startsWith("/")) {
+                        fullUriPath = "/" + fullUriPath;
+                    }
                     String encodedPath = encodePathForUri(fullUriPath);
                     try {
                         results.add(URI.create("kestra://" + encodedPath));
@@ -541,24 +518,16 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public List<FileAttributes> list(String tenantId, @Nullable String namespace, URI uri) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.list(tenantId, namespace, uri);
+        String path = getPath(tenantId, uri);
+        if (path == null || path.isEmpty()) {
+            path = "";
         }
-        return listFromFiler(getPath(tenantId, uri), tenantId, namespace, uri);
-    }
-
-    @Override
-    public List<FileAttributes> listInstanceResource(@Nullable String namespace, URI uri) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.listInstanceResource(namespace, uri);
+        if (!path.startsWith("/")) {
+            path = "/" + path;
         }
-        return listFromFilerInstance(getPath(uri), namespace, uri);
-    }
-
-    private List<FileAttributes> listFromFiler(String path, String tenantId, String namespace, URI uri) throws IOException {
-        if (path == null || path.isEmpty()) path = "";
-        if (!path.startsWith("/")) path = "/" + path;
-        if (!path.endsWith("/")) path = path + "/";
+        if (!path.endsWith("/")) {
+            path = path + "/";
+        }
 
         try {
             List<FilerProto.Entry> entries = filerClient.listEntries(path);
@@ -571,10 +540,12 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
                         metadata.put(key, new String(value.toByteArray())));
                 }
 
+                long lastModifiedTime = entry.getAttributes().getMtime() * 1000;
+
                 result.add(SeaweedFSFileAttributes.builder()
                     .fileName(entry.getName())
                     .size(entry.getAttributes().getFileSize())
-                    .lastModifiedTime(entry.getAttributes().getMtime() * 1000)
+                    .lastModifiedTime(lastModifiedTime)
                     .isDirectory(entry.getIsDirectory())
                     .metadata(metadata)
                     .build());
@@ -583,6 +554,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             if (result.isEmpty()) {
                 this.getAttributes(tenantId, namespace, uri);
             }
+
             return result;
         } catch (FileNotFoundException e) {
             throw e;
@@ -591,10 +563,18 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         }
     }
 
-    private List<FileAttributes> listFromFilerInstance(String path, String namespace, URI uri) throws IOException {
-        if (path == null || path.isEmpty()) path = "";
-        if (!path.startsWith("/")) path = "/" + path;
-        if (!path.endsWith("/")) path = path + "/";
+    @Override
+    public List<FileAttributes> listInstanceResource(@Nullable String namespace, URI uri) throws IOException {
+        String path = getPath(uri);
+        if (path == null || path.isEmpty()) {
+            path = "";
+        }
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+        if (!path.endsWith("/")) {
+            path = path + "/";
+        }
 
         try {
             List<FilerProto.Entry> entries = filerClient.listEntries(path);
@@ -607,10 +587,12 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
                         metadata.put(key, new String(value.toByteArray())));
                 }
 
+                long lastModifiedTime = entry.getAttributes().getMtime() * 1000;
+
                 result.add(SeaweedFSFileAttributes.builder()
                     .fileName(entry.getName())
                     .size(entry.getAttributes().getFileSize())
-                    .lastModifiedTime(entry.getAttributes().getMtime() * 1000)
+                    .lastModifiedTime(lastModifiedTime)
                     .isDirectory(entry.getIsDirectory())
                     .metadata(metadata)
                     .build());
@@ -619,6 +601,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             if (result.isEmpty()) {
                 this.getInstanceAttributes(namespace, uri);
             }
+
             return result;
         } catch (FileNotFoundException e) {
             throw e;
@@ -629,9 +612,6 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public boolean exists(String tenantId, @Nullable String namespace, URI uri) {
-        if (isS3Mode()) {
-            return s3Storage.exists(tenantId, namespace, uri);
-        }
         try {
             getAttributes(tenantId, namespace, uri);
             return true;
@@ -644,9 +624,6 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public boolean existsInstanceResource(@Nullable String namespace, URI uri) {
-        if (isS3Mode()) {
-            return s3Storage.existsInstanceResource(namespace, uri);
-        }
         try {
             getInstanceAttributes(namespace, uri);
             return true;
@@ -659,38 +636,38 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public FileAttributes getAttributes(String tenantId, @Nullable String namespace, URI uri) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.getAttributes(tenantId, namespace, uri);
-        }
         String path = getPath(tenantId, uri);
-        if (!path.startsWith("/")) path = "/" + path;
-        return getFileAttributesFromFiler(path, uri.toString());
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+        return getFileAttributes(path, uri.toString());
     }
 
     @Override
     public FileAttributes getInstanceAttributes(@Nullable String namespace, URI uri) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.getInstanceAttributes(namespace, uri);
-        }
         String path = getPath(uri);
-        if (!path.startsWith("/")) path = "/" + path;
-        return getFileAttributesFromFiler(path, uri.toString());
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+        return getFileAttributes(path, uri.toString());
     }
 
-    private FileAttributes getFileAttributesFromFiler(String path, String uriString) throws IOException {
+    private FileAttributes getFileAttributes(String path, String uriString) throws IOException {
         String[] parts = splitPath(path);
+        String directory = parts[0];
+        String filename = parts[1];
 
         try {
-            FilerProto.Entry entry = filerClient.lookupEntry(parts[0], parts[1]);
+            FilerProto.Entry entry = filerClient.lookupEntry(directory, filename);
 
             if (entry == null) {
                 String markerPath = path.endsWith("/") ? path + ".directory" : path + "/.directory";
                 try {
-                    FilerProto.Entry markerEntry = filerClient.lookupEntry(
-                        markerPath.substring(0, markerPath.lastIndexOf("/")), ".directory");
+                    FilerProto.Entry markerEntry = filerClient.lookupEntry(markerPath.substring(0, markerPath.lastIndexOf("/")), ".directory");
                     if (markerEntry != null) {
+                        // This is a directory with a marker file
                         return SeaweedFSFileAttributes.builder()
-                            .fileName(parts[1])
+                            .fileName(filename)
                             .size(0L)
                             .lastModifiedTime(markerEntry.getAttributes().getMtime() * 1000)
                             .isDirectory(true)
@@ -700,6 +677,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
                 } catch (Exception me) {
                     log.debug("Marker file not found for: {}", path);
                 }
+
                 throw new FileNotFoundException(uriString + " (File not found)");
             }
 
@@ -709,10 +687,12 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
                     metadata.put(key, new String(value.toByteArray())));
             }
 
+            long lastModifiedTime = entry.getAttributes().getMtime() * 1000;
+
             return SeaweedFSFileAttributes.builder()
                 .fileName(entry.getName())
                 .size(entry.getAttributes().getFileSize())
-                .lastModifiedTime(entry.getAttributes().getMtime() * 1000)
+                .lastModifiedTime(lastModifiedTime)
                 .isDirectory(entry.getIsDirectory())
                 .metadata(metadata)
                 .build();
@@ -728,12 +708,10 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public boolean delete(String tenantId, @Nullable String namespace, URI uri) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.delete(tenantId, namespace, uri);
-        }
-
         String path = getPath(tenantId, uri);
-        if (!path.startsWith("/")) path = "/" + path;
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
 
         FileAttributes fileAttributes;
         try {
@@ -749,12 +727,14 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             URI dirUri = uri.getPath().endsWith("/") ? uri : URI.create(uri + "/");
             List<URI> deleted = deleteByPrefix(tenantId, namespace, dirUri);
 
+            // Also try to delete the directory marker file
             try {
                 String markerPath = path.endsWith("/") ? path + ".directory" : path + "/.directory";
                 filerClient.rm(markerPath, false, false);
             } catch (Exception e) {
                 log.debug("No marker file to delete or deletion failed: {}", path, e);
             }
+
             return !deleted.isEmpty();
         }
 
@@ -769,12 +749,10 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public boolean deleteInstanceResource(@Nullable String namespace, URI uri) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.deleteInstanceResource(namespace, uri);
-        }
-
         String path = getPath(uri);
-        if (!path.startsWith("/")) path = "/" + path;
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
 
         FileAttributes fileAttributes;
         try {
@@ -790,7 +768,9 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             URI dirUri = uri.getPath().endsWith("/") ? uri : URI.create(uri + "/");
 
             String internalStoragePrefix = getPath(dirUri);
-            if (!internalStoragePrefix.startsWith("/")) internalStoragePrefix = "/" + internalStoragePrefix;
+            if (!internalStoragePrefix.startsWith("/")) {
+                internalStoragePrefix = "/" + internalStoragePrefix;
+            }
 
             List<URI> allFiles = new ArrayList<>();
             collectAllFiles(internalStoragePrefix, true, allFiles, internalStoragePrefix, dirUri.getPath());
@@ -811,6 +791,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
                 } catch (Exception e) {
                     log.debug("No marker file to delete: {}", path, e);
                 }
+
                 return deleted;
             }
 
@@ -820,7 +801,9 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             for (URI fileUri : allFiles) {
                 try {
                     String filePath = getPath(fileUri);
-                    if (!filePath.startsWith("/")) filePath = "/" + filePath;
+                    if (!filePath.startsWith("/")) {
+                        filePath = "/" + filePath;
+                    }
                     filerClient.rm(filePath, false, false);
                     anyDeleted = true;
                 } catch (Exception e) {
@@ -834,6 +817,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             } catch (Exception e) {
                 log.debug("No marker file to delete: {}", path, e);
             }
+
             return anyDeleted;
         }
 
@@ -848,22 +832,23 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public List<URI> deleteByPrefix(String tenantId, @Nullable String namespace, URI storagePrefix) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.deleteByPrefix(tenantId, namespace, storagePrefix);
-        }
-
         List<URI> allFiles = allByPrefix(tenantId, namespace, storagePrefix, true);
+
         List<URI> deletedFiles = new ArrayList<>();
 
         if (!allFiles.isEmpty()) {
+            // Delete in reverse order (deepest first)
             Collections.reverse(allFiles);
 
             for (URI fileUri : allFiles) {
                 try {
                     String path = getPath(tenantId, fileUri);
-                    if (!path.startsWith("/")) path = "/" + path;
+                    if (!path.startsWith("/")) {
+                        path = "/" + path;
+                    }
                     filerClient.rm(path, false, false);
 
+                    // For deleted URIs, remove trailing slash from directories
                     String uriStr = fileUri.toString();
                     if (uriStr.endsWith("/")) {
                         uriStr = uriStr.substring(0, uriStr.length() - 1);
@@ -877,9 +862,13 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             }
         }
 
+        // Also try to delete the parent directory itself and its marker
+        // Only do this if we actually deleted some files (to avoid adding non-existent dirs to the list)
         if (!deletedFiles.isEmpty()) {
             String prefixPath = getPath(tenantId, storagePrefix);
-            if (!prefixPath.startsWith("/")) prefixPath = "/" + prefixPath;
+            if (!prefixPath.startsWith("/")) {
+                prefixPath = "/" + prefixPath;
+            }
 
             String cleanPrefixPath = prefixPath.endsWith("/") ? prefixPath.substring(0, prefixPath.length() - 1) : prefixPath;
 
@@ -892,32 +881,41 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             }
 
             try {
-                filerClient.rm(cleanPrefixPath + "/.directory", false, false);
+                String markerPath = cleanPrefixPath + "/.directory";
+                filerClient.rm(markerPath, false, false);
             } catch (Exception e) {
                 log.debug("No marker file to delete: {}", cleanPrefixPath, e);
             }
 
+            // Only add parent to deleted list if the actual directory was deleted
+            // (not just the marker file)
             if (parentDirectoryDeleted) {
                 String uriPath = storagePrefix.getPath();
-                if (uriPath.endsWith("/")) uriPath = uriPath.substring(0, uriPath.length() - 1);
-                if (!uriPath.startsWith("/")) uriPath = "/" + uriPath;
+                if (uriPath.endsWith("/")) {
+                    uriPath = uriPath.substring(0, uriPath.length() - 1);
+                }
+                if (!uriPath.startsWith("/")) {
+                    uriPath = "/" + uriPath;
+                }
                 String encodedPath = encodePathForUri(uriPath);
                 deletedFiles.add(URI.create("kestra://" + encodedPath));
             }
         }
+
         return deletedFiles;
     }
 
     @Override
     public URI createDirectory(String tenantId, @Nullable String namespace, URI uri) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.createDirectory(tenantId, namespace, uri);
-        }
-
         validateNoPathTraversal(uri);
+
         String path = getPath(tenantId, uri);
-        if (!path.startsWith("/")) path = "/" + path;
-        if (!path.endsWith("/")) path = path + "/";
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+        if (!path.endsWith("/")) {
+            path = path + "/";
+        }
 
         try {
             filerClient.mkdirs(path, 0755);
@@ -926,7 +924,9 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         }
 
         String uriPath = uri.getPath();
-        if (!uriPath.startsWith("/")) uriPath = "/" + uriPath;
+        if (!uriPath.startsWith("/")) {
+            uriPath = "/" + uriPath;
+        }
         String encodedPath = encodePathForUri(uriPath);
         try {
             return URI.create("kestra://" + encodedPath);
@@ -937,21 +937,25 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public URI createInstanceDirectory(@Nullable String namespace, URI uri) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.createInstanceDirectory(namespace, uri);
-        }
-
         validateNoPathTraversal(uri);
+
         String path = getPath(uri);
-        if (!path.startsWith("/")) path = "/" + path;
-        if (!path.endsWith("/")) path = path + "/";
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+        if (!path.endsWith("/")) {
+            path = path + "/";
+        }
 
         try {
             filerClient.mkdirs(path, 0755);
 
+            // Create a marker file to ensure the directory entry exists
+            // This is needed because SeaweedFS may not persist empty directories
             String markerPath = path + ".directory";
             try (SeaweedOutputStream out = new SeaweedOutputStream(filerClient, markerPath)) {
                 out.write(new byte[0]);
+                out.close();
             } catch (Exception e) {
                 log.debug("Failed to create directory marker: {}", markerPath, e);
             }
@@ -960,7 +964,9 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         }
 
         String uriPath = uri.getPath();
-        if (!uriPath.startsWith("/")) uriPath = "/" + uriPath;
+        if (!uriPath.startsWith("/")) {
+            uriPath = "/" + uriPath;
+        }
         String encodedPath = encodePathForUri(uriPath);
         try {
             return URI.create("kestra://" + encodedPath);
@@ -971,14 +977,15 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Override
     public URI move(String tenantId, @Nullable String namespace, URI from, URI to) throws IOException {
-        if (isS3Mode()) {
-            return s3Storage.move(tenantId, namespace, from, to);
-        }
-
         String sourcePath = getPath(tenantId, from);
         String destPath = getPath(tenantId, to);
-        if (!sourcePath.startsWith("/")) sourcePath = "/" + sourcePath;
-        if (!destPath.startsWith("/")) destPath = "/" + destPath;
+
+        if (!sourcePath.startsWith("/")) {
+            sourcePath = "/" + sourcePath;
+        }
+        if (!destPath.startsWith("/")) {
+            destPath = "/" + destPath;
+        }
 
         try {
             FileAttributes attributes = getAttributes(tenantId, namespace, from);
@@ -1001,7 +1008,9 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         }
 
         String toPath = to.getPath();
-        if (!toPath.startsWith("/")) toPath = "/" + toPath;
+        if (!toPath.startsWith("/")) {
+            toPath = "/" + toPath;
+        }
         String encodedPath = encodePathForUri(toPath);
         try {
             return URI.create("kestra://" + encodedPath);
@@ -1011,8 +1020,12 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     }
 
     private void moveSingleFile(String source, String dest) throws IOException {
-        if (!source.startsWith("/")) source = "/" + source;
-        if (!dest.startsWith("/")) dest = "/" + dest;
+        if (!source.startsWith("/")) {
+            source = "/" + source;
+        }
+        if (!dest.startsWith("/")) {
+            dest = "/" + dest;
+        }
 
         mkdirs(dest);
 

@@ -51,8 +51,6 @@ dependencies {
 
     // SeaweedFS client and gRPC dependencies
     implementation("com.seaweedfs:seaweedfs-client:4.00")
-
-    implementation group: "io.kestra.storage", name: "storage-s3", version: kestraVersion
 }
 
 
