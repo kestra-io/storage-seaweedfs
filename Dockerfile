@@ -1,4 +1,3 @@
 # for dev purposes only
 FROM kestra/kestra:latest
-
-# COPY build/libs/* /app/plugins/ # this is already handled in docker-compose.yml
+# Plugin JAR is mounted at runtime via docker-compose volume
