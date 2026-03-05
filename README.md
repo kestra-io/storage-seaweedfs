@@ -36,11 +36,9 @@
 <p align="center" style="color:grey;"><i>Get started with Kestra in 3 minutes.</i></p>
 
 
-# Kestra Plugin Template
+# Kestra SeaweedFS Storage
 
-> A template for creating Kestra plugins
-
-This repository serves as a general template for creating a new [Kestra](https://github.com/kestra-io/kestra) plugin. It should take only a few minutes! Use this repository as a scaffold to ensure that you've set up the plugin correctly, including unit tests and CI/CD workflows.
+> Use [SeaweedFS](https://github.com/seaweedfs/seaweedfs) as internal storage backend for your Kestra workflows. Store and retrieve workflow data using a fast, distributed object store.
 
 ![Kestra orchestrator](https://kestra.io/video.gif)
 
