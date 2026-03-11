@@ -1,10 +1,11 @@
 package io.kestra.storage.seaweedfs;
 
+import java.util.Map;
+
 import io.kestra.core.storages.FileAttributes;
+
 import lombok.Builder;
 import lombok.Value;
-
-import java.util.Map;
 
 @Value
 @Builder

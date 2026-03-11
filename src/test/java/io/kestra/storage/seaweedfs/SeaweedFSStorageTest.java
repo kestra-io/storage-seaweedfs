@@ -1,20 +1,21 @@
 package io.kestra.storage.seaweedfs;
 
-import io.kestra.core.storage.StorageTestSuite;
-import io.kestra.core.storages.StorageInterface;
-import io.kestra.core.tenant.TenantService;
-import io.kestra.core.utils.IdUtils;
-import jakarta.inject.Inject;
-import org.junit.jupiter.api.*;
-
 import java.io.*;
 import java.net.URI;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Random;
 
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.*;
 
+import io.kestra.core.storage.StorageTestSuite;
+import io.kestra.core.storages.StorageInterface;
+import io.kestra.core.tenant.TenantService;
+import io.kestra.core.utils.IdUtils;
+
+import jakarta.inject.Inject;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class SeaweedFSStorageTest extends StorageTestSuite {
@@ -69,8 +70,10 @@ class SeaweedFSStorageTest extends StorageTestSuite {
         long uploadTime = System.currentTimeMillis() - uploadStart;
 
         assertNotNull(resultUri, "Upload should return a URI");
-        assertTrue(storageInterface.exists(TenantService.MAIN_TENANT, null, fileUri),
-            "Large file should exist after upload");
+        assertTrue(
+            storageInterface.exists(TenantService.MAIN_TENANT, null, fileUri),
+            "Large file should exist after upload"
+        );
 
         long downloadStart = System.currentTimeMillis();
         InputStream downloadStream = storageInterface.get(TenantService.MAIN_TENANT, null, fileUri);
@@ -78,13 +81,17 @@ class SeaweedFSStorageTest extends StorageTestSuite {
         downloadStream.close();
         long downloadTime = System.currentTimeMillis() - downloadStart;
 
-        assertEquals(LARGE_FILE_SIZE, downloadedContent.length,
-            "Downloaded file size should match uploaded size");
+        assertEquals(
+            LARGE_FILE_SIZE, downloadedContent.length,
+            "Downloaded file size should match uploaded size"
+        );
 
         String downloadedChecksum = calculateMD5(downloadedContent);
 
-        assertEquals(originalChecksum, downloadedChecksum,
-            "Downloaded large file checksum should match original - data integrity verified");
+        assertEquals(
+            originalChecksum, downloadedChecksum,
+            "Downloaded large file checksum should match original - data integrity verified"
+        );
 
         storageInterface.delete(TenantService.MAIN_TENANT, null, fileUri);
     }
@@ -114,8 +121,10 @@ class SeaweedFSStorageTest extends StorageTestSuite {
         downloadStream.close();
         long downloadTime = System.currentTimeMillis() - downloadStart;
 
-        assertEquals(VERY_LARGE_FILE_SIZE, totalBytesRead,
-            "Streamed file size should match expected size");
+        assertEquals(
+            VERY_LARGE_FILE_SIZE, totalBytesRead,
+            "Streamed file size should match expected size"
+        );
 
         storageInterface.delete(TenantService.MAIN_TENANT, null, fileUri);
     }
@@ -131,15 +140,19 @@ class SeaweedFSStorageTest extends StorageTestSuite {
             binaryContent[i] = (byte) i;
         }
 
-        storageInterface.put(TenantService.MAIN_TENANT, null, fileUri,
-            new ByteArrayInputStream(binaryContent));
+        storageInterface.put(
+            TenantService.MAIN_TENANT, null, fileUri,
+            new ByteArrayInputStream(binaryContent)
+        );
 
         InputStream downloadStream = storageInterface.get(TenantService.MAIN_TENANT, null, fileUri);
         byte[] downloadedContent = downloadStream.readAllBytes();
         downloadStream.close();
 
-        assertArrayEquals(binaryContent, downloadedContent,
-            "Binary data should be identical after upload/download");
+        assertArrayEquals(
+            binaryContent, downloadedContent,
+            "Binary data should be identical after upload/download"
+        );
 
         // Cleanup
         storageInterface.delete(TenantService.MAIN_TENANT, null, fileUri);
@@ -154,16 +167,20 @@ class SeaweedFSStorageTest extends StorageTestSuite {
         for (int i = 0; i < fileCount; i++) {
             URI fileUri = URI.create("/" + prefix + "/file-" + i + ".txt");
             String content = "Content of file " + i;
-            storageInterface.put(TenantService.MAIN_TENANT, null, fileUri,
-                new ByteArrayInputStream(content.getBytes()));
+            storageInterface.put(
+                TenantService.MAIN_TENANT, null, fileUri,
+                new ByteArrayInputStream(content.getBytes())
+            );
         }
 
         URI prefixUri = URI.create("/" + prefix + "/");
         var filesBefore = storageInterface.allByPrefix(TenantService.MAIN_TENANT, null, prefixUri, false);
         long actualFileCount = filesBefore.size();
 
-        assertTrue(actualFileCount >= fileCount,
-            "Should have at least " + fileCount + " files before deletion");
+        assertTrue(
+            actualFileCount >= fileCount,
+            "Should have at least " + fileCount + " files before deletion"
+        );
 
         var deletedUris = storageInterface.deleteByPrefix(TenantService.MAIN_TENANT, null, prefixUri);
 
@@ -187,8 +204,10 @@ class SeaweedFSStorageTest extends StorageTestSuite {
         };
 
         for (String path : filePaths) {
-            storageInterface.put(TenantService.MAIN_TENANT, null, URI.create(path),
-                new ByteArrayInputStream(("Content: " + path).getBytes()));
+            storageInterface.put(
+                TenantService.MAIN_TENANT, null, URI.create(path),
+                new ByteArrayInputStream(("Content: " + path).getBytes())
+            );
         }
 
         URI baseUri = URI.create("/" + basePrefix + "/");
@@ -196,8 +215,10 @@ class SeaweedFSStorageTest extends StorageTestSuite {
 
         long uriCount = allUris.size();
 
-        assertTrue(uriCount >= filePaths.length,
-            "Should list at least " + filePaths.length + " URIs recursively");
+        assertTrue(
+            uriCount >= filePaths.length,
+            "Should list at least " + filePaths.length + " URIs recursively"
+        );
 
         // Cleanup
         storageInterface.deleteByPrefix(TenantService.MAIN_TENANT, null, baseUri);
@@ -211,8 +232,10 @@ class SeaweedFSStorageTest extends StorageTestSuite {
 
         for (int i = 0; i < fileCount; i++) {
             URI fileUri = URI.create("/" + prefix + "/file-" + String.format("%04d", i) + ".txt");
-            storageInterface.put(TenantService.MAIN_TENANT, null, fileUri,
-                new ByteArrayInputStream(("Content " + i).getBytes()));
+            storageInterface.put(
+                TenantService.MAIN_TENANT, null, fileUri,
+                new ByteArrayInputStream(("Content " + i).getBytes())
+            );
         }
 
         URI prefixUri = URI.create("/" + prefix + "/");
@@ -220,8 +243,10 @@ class SeaweedFSStorageTest extends StorageTestSuite {
 
         long actualUriCount = allUris.size();
 
-        assertEquals(fileCount, actualUriCount,
-            "Should list all " + fileCount + " URIs with pagination");
+        assertEquals(
+            fileCount, actualUriCount,
+            "Should list all " + fileCount + " URIs with pagination"
+        );
 
         // Cleanup
         storageInterface.deleteByPrefix(TenantService.MAIN_TENANT, null, prefixUri);
@@ -238,12 +263,15 @@ class SeaweedFSStorageTest extends StorageTestSuite {
 
         for (int i = 0; i < numThreads; i++) {
             final int threadNum = i;
-            threads[i] = new Thread(() -> {
+            threads[i] = new Thread(() ->
+            {
                 try {
                     URI fileUri = URI.create("/" + prefix + "/file-" + threadNum + ".txt");
                     String content = "Concurrent content from thread " + threadNum;
-                    storageInterface.put(TenantService.MAIN_TENANT, null, fileUri,
-                        new ByteArrayInputStream(content.getBytes()));
+                    storageInterface.put(
+                        TenantService.MAIN_TENANT, null, fileUri,
+                        new ByteArrayInputStream(content.getBytes())
+                    );
                 } catch (Exception e) {
                     exceptions[threadNum] = e;
                 }
@@ -256,8 +284,10 @@ class SeaweedFSStorageTest extends StorageTestSuite {
         }
 
         for (int i = 0; i < numThreads; i++) {
-            assertNull(exceptions[i], "Thread " + i + " should not throw exception: " +
-                (exceptions[i] != null ? exceptions[i].getMessage() : ""));
+            assertNull(
+                exceptions[i], "Thread " + i + " should not throw exception: " +
+                    (exceptions[i] != null ? exceptions[i].getMessage() : "")
+            );
         }
 
         // Verify all files were uploaded
@@ -284,27 +314,35 @@ class SeaweedFSStorageTest extends StorageTestSuite {
         byte[] content = generateRandomBytes(moveFileSize);
         String originalChecksum = calculateMD5(content);
 
-        storageInterface.put(TenantService.MAIN_TENANT, null, sourceUri,
-            new ByteArrayInputStream(content));
+        storageInterface.put(
+            TenantService.MAIN_TENANT, null, sourceUri,
+            new ByteArrayInputStream(content)
+        );
 
         URI resultUri = storageInterface.move(TenantService.MAIN_TENANT, null, sourceUri, destUri);
         assertNotNull(resultUri, "Move should return destination URI");
 
         // Verify source no longer exists
-        assertFalse(storageInterface.exists(TenantService.MAIN_TENANT, null, sourceUri),
-            "Source file should not exist after move");
+        assertFalse(
+            storageInterface.exists(TenantService.MAIN_TENANT, null, sourceUri),
+            "Source file should not exist after move"
+        );
 
         // Verify destination exists and content is intact
-        assertTrue(storageInterface.exists(TenantService.MAIN_TENANT, null, destUri),
-            "Destination file should exist after move");
+        assertTrue(
+            storageInterface.exists(TenantService.MAIN_TENANT, null, destUri),
+            "Destination file should exist after move"
+        );
 
         InputStream downloadStream = storageInterface.get(TenantService.MAIN_TENANT, null, destUri);
         byte[] movedContent = downloadStream.readAllBytes();
         downloadStream.close();
 
         String movedChecksum = calculateMD5(movedContent);
-        assertEquals(originalChecksum, movedChecksum,
-            "Moved file content should match original");
+        assertEquals(
+            originalChecksum, movedChecksum,
+            "Moved file content should match original"
+        );
         // Cleanup
         storageInterface.delete(TenantService.MAIN_TENANT, null, destUri);
     }

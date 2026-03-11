@@ -1,29 +1,32 @@
 package io.kestra.storage.seaweedfs;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import io.kestra.core.models.annotations.Plugin;
-import io.kestra.core.storages.FileAttributes;
-import io.kestra.core.storages.StorageInterface;
-import io.kestra.core.storages.StorageObject;
-import io.swagger.v3.oas.annotations.media.Schema;
-import lombok.*;
-import lombok.extern.jackson.Jacksonized;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import seaweedfs.client.FilerClient;
-import seaweedfs.client.FilerProto;
-import seaweedfs.client.SeaweedInputStream;
-import seaweedfs.client.SeaweedOutputStream;
-import io.grpc.LoadBalancerRegistry;
-import io.grpc.NameResolverRegistry;
-import io.grpc.internal.DnsNameResolverProvider;
-import io.grpc.internal.PickFirstLoadBalancerProvider;
-
-import jakarta.annotation.Nullable;
 import java.io.*;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+import io.kestra.core.models.annotations.Plugin;
+import io.kestra.core.storages.FileAttributes;
+import io.kestra.core.storages.StorageInterface;
+import io.kestra.core.storages.StorageObject;
+
+import io.grpc.LoadBalancerRegistry;
+import io.grpc.NameResolverRegistry;
+import io.grpc.internal.DnsNameResolverProvider;
+import io.grpc.internal.PickFirstLoadBalancerProvider;
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.annotation.Nullable;
+import lombok.*;
+import lombok.extern.jackson.Jacksonized;
+import seaweedfs.client.FilerClient;
+import seaweedfs.client.FilerProto;
+import seaweedfs.client.SeaweedInputStream;
+import seaweedfs.client.SeaweedOutputStream;
 
 @AllArgsConstructor
 @NoArgsConstructor
@@ -120,6 +123,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     /**
      * Validate that the path does not contain directory traversal sequences.
+     * 
      * @param uri The URI to validate
      * @throws IllegalArgumentException if path traversal is detected
      */
@@ -144,11 +148,11 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     private String[] splitPath(String fullPath) {
         int lastSlash = fullPath.lastIndexOf('/');
         if (lastSlash <= 0) {
-            return new String[]{"/", fullPath};
+            return new String[] { "/", fullPath };
         }
         String directory = fullPath.substring(0, lastSlash);
         String filename = fullPath.substring(lastSlash + 1);
-        return new String[]{directory, filename};
+        return new String[] { directory, filename };
     }
 
     private URI limit(URI uri) throws IOException {
@@ -470,7 +474,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     }
 
     private void collectAllFiles(String path, boolean includeDirectories, List<URI> results,
-                                 String basePrefix, String uriPrefix) throws IOException {
+        String basePrefix, String uriPrefix) throws IOException {
         try {
             List<FilerProto.Entry> entries = filerClient.listEntries(path);
 
@@ -536,19 +540,20 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             for (FilerProto.Entry entry : entries) {
                 Map<String, String> metadata = new HashMap<>();
                 if (entry.getExtendedCount() > 0) {
-                    entry.getExtendedMap().forEach((key, value) ->
-                        metadata.put(key, new String(value.toByteArray())));
+                    entry.getExtendedMap().forEach((key, value) -> metadata.put(key, new String(value.toByteArray())));
                 }
 
                 long lastModifiedTime = entry.getAttributes().getMtime() * 1000;
 
-                result.add(SeaweedFSFileAttributes.builder()
-                    .fileName(entry.getName())
-                    .size(entry.getAttributes().getFileSize())
-                    .lastModifiedTime(lastModifiedTime)
-                    .isDirectory(entry.getIsDirectory())
-                    .metadata(metadata)
-                    .build());
+                result.add(
+                    SeaweedFSFileAttributes.builder()
+                        .fileName(entry.getName())
+                        .size(entry.getAttributes().getFileSize())
+                        .lastModifiedTime(lastModifiedTime)
+                        .isDirectory(entry.getIsDirectory())
+                        .metadata(metadata)
+                        .build()
+                );
             }
 
             if (result.isEmpty()) {
@@ -583,19 +588,20 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             for (FilerProto.Entry entry : entries) {
                 Map<String, String> metadata = new HashMap<>();
                 if (entry.getExtendedCount() > 0) {
-                    entry.getExtendedMap().forEach((key, value) ->
-                        metadata.put(key, new String(value.toByteArray())));
+                    entry.getExtendedMap().forEach((key, value) -> metadata.put(key, new String(value.toByteArray())));
                 }
 
                 long lastModifiedTime = entry.getAttributes().getMtime() * 1000;
 
-                result.add(SeaweedFSFileAttributes.builder()
-                    .fileName(entry.getName())
-                    .size(entry.getAttributes().getFileSize())
-                    .lastModifiedTime(lastModifiedTime)
-                    .isDirectory(entry.getIsDirectory())
-                    .metadata(metadata)
-                    .build());
+                result.add(
+                    SeaweedFSFileAttributes.builder()
+                        .fileName(entry.getName())
+                        .size(entry.getAttributes().getFileSize())
+                        .lastModifiedTime(lastModifiedTime)
+                        .isDirectory(entry.getIsDirectory())
+                        .metadata(metadata)
+                        .build()
+                );
             }
 
             if (result.isEmpty()) {
@@ -683,8 +689,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
             Map<String, String> metadata = new HashMap<>();
             if (entry.getExtendedCount() > 0) {
-                entry.getExtendedMap().forEach((key, value) ->
-                    metadata.put(key, new String(value.toByteArray())));
+                entry.getExtendedMap().forEach((key, value) -> metadata.put(key, new String(value.toByteArray())));
             }
 
             long lastModifiedTime = entry.getAttributes().getMtime() * 1000;

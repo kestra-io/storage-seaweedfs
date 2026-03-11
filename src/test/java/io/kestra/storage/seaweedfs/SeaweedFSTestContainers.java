@@ -1,19 +1,19 @@
 package io.kestra.storage.seaweedfs;
 
-import com.github.dockerjava.api.model.ExposedPort;
-import com.github.dockerjava.api.model.HostConfig;
-import com.github.dockerjava.api.model.PortBinding;
-import com.github.dockerjava.api.model.Ports;
+import java.time.Duration;
+
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
-import java.time.Duration;
+import com.github.dockerjava.api.model.ExposedPort;
+import com.github.dockerjava.api.model.HostConfig;
+import com.github.dockerjava.api.model.PortBinding;
+import com.github.dockerjava.api.model.Ports;
 
 public class SeaweedFSTestContainers {
 
-    private static final DockerImageName SEAWEEDFS_IMAGE =
-        DockerImageName.parse("chrislusf/seaweedfs:latest");
+    private static final DockerImageName SEAWEEDFS_IMAGE = DockerImageName.parse("chrislusf/seaweedfs:latest");
 
     private static GenericContainer<?> mainContainer;
 
@@ -37,8 +37,8 @@ public class SeaweedFSTestContainers {
             mainContainer = new GenericContainer<>(SEAWEEDFS_IMAGE)
                 .withCommand(
                     "server",
-                    "-ip=localhost",          // Advertise localhost to clients
-                    "-ip.bind=0.0.0.0",       // Listen on all interfaces inside container
+                    "-ip=localhost", // Advertise localhost to clients
+                    "-ip.bind=0.0.0.0", // Listen on all interfaces inside container
                     "-dir=/data",
                     "-volume.max=100",
                     "-master.port=" + MASTER_PORT,
@@ -48,16 +48,20 @@ public class SeaweedFSTestContainers {
                     "-filer.port.grpc=" + FILER_GRPC_PORT
                 )
                 .withExposedPorts(MASTER_PORT, VOLUME_PORT, FILER_HTTP_PORT, FILER_GRPC_PORT)
-                .withCreateContainerCmdModifier(cmd -> cmd.withHostConfig(
-                    new HostConfig().withPortBindings(
-                        new PortBinding(Ports.Binding.bindPort(MASTER_PORT), new ExposedPort(MASTER_PORT)),
-                        new PortBinding(Ports.Binding.bindPort(VOLUME_PORT), new ExposedPort(VOLUME_PORT)),
-                        new PortBinding(Ports.Binding.bindPort(FILER_HTTP_PORT), new ExposedPort(FILER_HTTP_PORT)),
-                        new PortBinding(Ports.Binding.bindPort(FILER_GRPC_PORT), new ExposedPort(FILER_GRPC_PORT))
+                .withCreateContainerCmdModifier(
+                    cmd -> cmd.withHostConfig(
+                        new HostConfig().withPortBindings(
+                            new PortBinding(Ports.Binding.bindPort(MASTER_PORT), new ExposedPort(MASTER_PORT)),
+                            new PortBinding(Ports.Binding.bindPort(VOLUME_PORT), new ExposedPort(VOLUME_PORT)),
+                            new PortBinding(Ports.Binding.bindPort(FILER_HTTP_PORT), new ExposedPort(FILER_HTTP_PORT)),
+                            new PortBinding(Ports.Binding.bindPort(FILER_GRPC_PORT), new ExposedPort(FILER_GRPC_PORT))
+                        )
                     )
-                ))
-                .waitingFor(Wait.forLogMessage(".*Start Seaweed Filer.*", 1)
-                    .withStartupTimeout(Duration.ofSeconds(120)));
+                )
+                .waitingFor(
+                    Wait.forLogMessage(".*Start Seaweed Filer.*", 1)
+                        .withStartupTimeout(Duration.ofSeconds(120))
+                );
 
             mainContainer.start();
 

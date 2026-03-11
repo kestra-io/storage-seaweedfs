@@ -1,22 +1,22 @@
 package io.kestra.storage.seaweedfs;
 
-import io.kestra.core.junit.annotations.KestraTest;
-import io.kestra.core.utils.IdUtils;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestInstance;
-
 import java.io.*;
 import java.net.URI;
 import java.security.MessageDigest;
 import java.util.Random;
 
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+
+import io.kestra.core.junit.annotations.KestraTest;
+import io.kestra.core.utils.IdUtils;
+
 import static io.kestra.core.tenant.TenantService.MAIN_TENANT;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.*;
-
 
 @KestraTest
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -49,7 +49,6 @@ class SeaweedFSLargeFileTest {
         String fileName = IdUtils.create() + "-10mb.bin";
         URI fileUri = URI.create("/" + fileName);
 
-
         byte[] content = new byte[fileSize];
         Random random = new Random(999);
         random.nextBytes(content);
@@ -59,7 +58,6 @@ class SeaweedFSLargeFileTest {
         long uploadStart = System.currentTimeMillis();
         storage.put(MAIN_TENANT, null, fileUri, new ByteArrayInputStream(content));
         long uploadDuration = System.currentTimeMillis() - uploadStart;
-
 
         // Download and verify
         long downloadStart = System.currentTimeMillis();
@@ -84,7 +82,6 @@ class SeaweedFSLargeFileTest {
         String fileName = IdUtils.create() + "-25mb.bin";
         URI fileUri = URI.create("/" + fileName);
 
-
         // Create file
         byte[] content = new byte[fileSize];
         Random random = new Random(777);
@@ -95,7 +92,6 @@ class SeaweedFSLargeFileTest {
         long uploadStart = System.currentTimeMillis();
         storage.put(MAIN_TENANT, null, fileUri, new ByteArrayInputStream(content));
         long uploadDuration = System.currentTimeMillis() - uploadStart;
-
 
         long downloadStart = System.currentTimeMillis();
         try (InputStream is = storage.get(MAIN_TENANT, null, fileUri)) {
@@ -117,7 +113,6 @@ class SeaweedFSLargeFileTest {
         int fileSize = 12 * MEGA_BYTE;
         int numFiles = 5;
         String prefix = IdUtils.create() + "-seq";
-
 
         long totalUploadTime = 0;
         long totalDownloadTime = 0;
@@ -157,7 +152,6 @@ class SeaweedFSLargeFileTest {
             20 * MEGA_BYTE
         };
 
-
         for (int size : chunkSizes) {
             String fileName = IdUtils.create() + "-" + (size / MEGA_BYTE) + "mb.bin";
             URI fileUri = URI.create("/" + fileName);
@@ -172,10 +166,14 @@ class SeaweedFSLargeFileTest {
                 byte[] downloaded = is.readAllBytes();
                 String downloadedChecksum = calculateMD5(downloaded);
 
-                assertEquals(size, downloaded.length,
-                    "Size mismatch for " + (size / MEGA_BYTE) + "MB file");
-                assertEquals(checksum, downloadedChecksum,
-                    "Checksum mismatch for " + (size / MEGA_BYTE) + "MB file");
+                assertEquals(
+                    size, downloaded.length,
+                    "Size mismatch for " + (size / MEGA_BYTE) + "MB file"
+                );
+                assertEquals(
+                    checksum, downloadedChecksum,
+                    "Checksum mismatch for " + (size / MEGA_BYTE) + "MB file"
+                );
 
                 System.out.println("  ✓ " + (size / MEGA_BYTE) + "MB file passed");
             }
