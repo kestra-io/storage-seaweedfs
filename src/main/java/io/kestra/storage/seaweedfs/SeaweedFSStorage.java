@@ -27,6 +27,7 @@ import seaweedfs.client.FilerClient;
 import seaweedfs.client.FilerProto;
 import seaweedfs.client.SeaweedInputStream;
 import seaweedfs.client.SeaweedOutputStream;
+import io.kestra.core.models.annotations.PluginProperty;
 
 @AllArgsConstructor
 @NoArgsConstructor
@@ -70,6 +71,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         title = "SeaweedFS Filer server host",
         description = "The hostname or IP address of the SeaweedFS filer server (e.g., localhost)"
     )
+    @PluginProperty(group = "connection")
     private String filerHost;
 
     @Schema(
@@ -77,6 +79,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         description = "The gRPC port of the SeaweedFS filer server (default: 18888)"
     )
     @Builder.Default
+    @PluginProperty(group = "connection")
     private int filerPort = 18888;
 
     @Schema(
@@ -84,6 +87,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         description = "The root prefix path for all storage operations (e.g., kestra/). Optional, defaults to no prefix."
     )
     @Builder.Default
+    @PluginProperty(group = "advanced")
     private String prefix = "";
 
     @Schema(
@@ -91,6 +95,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         description = "Replication setting for data centers (e.g., 000 for no replication, 001 for 1 copy)"
     )
     @Builder.Default
+    @PluginProperty(group = "advanced")
     private String replication = "000";
 
     @com.fasterxml.jackson.annotation.JsonIgnore
