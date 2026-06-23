@@ -24,7 +24,9 @@ public class SeaweedFSTestContainers {
     // See: https://github.com/seaweedfs/seaweedfs/issues/438
     public static final int MASTER_PORT = 9333;
     public static final int VOLUME_PORT = 8080;
-    public static final int FILER_HTTP_PORT = 8888;
+    // Port 8888 is commonly used by other processes on GitHub-hosted runners,
+    // so the filer HTTP port is remapped to a free high port to avoid conflicts.
+    public static final int FILER_HTTP_PORT = 18889;
     public static final int FILER_GRPC_PORT = 18888;
 
     public static synchronized void start() {
