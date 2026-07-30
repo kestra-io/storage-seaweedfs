@@ -53,7 +53,7 @@ dependencies {
     annotationProcessor group: "io.kestra", name: "processor", version: kestraVersion
 
     // SeaweedFS client and gRPC dependencies
-    implementation("com.seaweedfs:seaweedfs-client:4.00")
+    implementation("com.seaweedfs:seaweedfs-client:4.38")
 }
 
 
