@@ -101,21 +101,17 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     @com.fasterxml.jackson.annotation.JsonIgnore
     private transient FilerClient filerClient;
 
-    // Computed lazily because instances are built by Jackson/Lombok, so there is no single constructor hook.
-    @com.fasterxml.jackson.annotation.JsonIgnore
-    @Getter(AccessLevel.NONE)
-    private transient volatile String normalizedPrefix;
-
     @Override
     public void init() {
         if (filerHost == null || filerHost.isEmpty()) {
             throw new IllegalArgumentException("Filer host must be configured for SeaweedFS storage");
         }
 
-        if (Arrays.asList(normalizedPrefix().split("/")).contains("..")) {
+        String root = normalizedPrefix(prefix);
+        if (Arrays.asList(root.split("/")).contains("..")) {
             throw new IllegalArgumentException("Invalid SeaweedFS prefix '" + prefix + "': '..' segments are not allowed");
         }
-        log.info("SeaweedFS storage root: /{}", normalizedPrefix());
+        log.info("SeaweedFS storage root: /{}", root);
 
         try {
             registerGrpcProviders();
@@ -139,27 +135,22 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     /**
      * Prefix without surrounding whitespace, leading/trailing or repeated slashes; empty when no prefix is set.
      */
-    private String normalizedPrefix() {
-        String normalized = this.normalizedPrefix;
-        if (normalized == null) {
-            normalized = prefix == null ? "" : String.join("/", Arrays.stream(prefix.trim().split("/")).filter(part -> !part.isEmpty()).toList());
-            this.normalizedPrefix = normalized;
-        }
-        return normalized;
+    private static String normalizedPrefix(String prefix) {
+        return prefix == null ? "" : String.join("/", Arrays.stream(prefix.trim().split("/")).filter(part -> !part.isEmpty()).toList());
     }
 
     // The prefix must be applied in both overrides: the default tenant variant calls getPath(URI) and would otherwise yield <tenant>/<prefix>/...
     @Override
     public String getPath(URI uri) {
         String path = StorageInterface.super.getPath(uri);
-        String root = normalizedPrefix();
+        String root = normalizedPrefix(prefix);
         return root.isEmpty() ? path : root + "/" + path;
     }
 
     @Override
     public String getPath(String tenantId, URI uri) {
         String path = StorageInterface.super.getPath(uri);
-        String root = normalizedPrefix();
+        String root = normalizedPrefix(prefix);
         String tenantPath = tenantId + "/" + path;
         return root.isEmpty() ? tenantPath : root + "/" + tenantPath;
     }
