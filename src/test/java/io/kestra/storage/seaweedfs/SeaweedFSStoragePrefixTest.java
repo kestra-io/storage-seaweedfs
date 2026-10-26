@@ -6,6 +6,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,6 +16,7 @@ import io.kestra.core.storages.FileAttributes;
 import io.kestra.core.utils.IdUtils;
 
 import seaweedfs.client.FilerClient;
+import seaweedfs.client.SeaweedOutputStream;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
@@ -36,6 +38,11 @@ class SeaweedFSStoragePrefixTest {
         storage = storage(PREFIX + "/");
         storage.init();
         raw = new FilerClient(SeaweedFSTestContainers.getFilerHost(), SeaweedFSTestContainers.getFilerGrpcPort());
+    }
+
+    @AfterAll
+    void tearDown() throws InterruptedException {
+        raw.shutdown();
     }
 
     private static SeaweedFSStorage storage(String prefix) {
@@ -173,7 +180,7 @@ class SeaweedFSStoragePrefixTest {
         String bucket = "bucket-" + IdUtils.create();
         // Simulate a bucket copied through the SeaweedFS S3 gateway.
         raw.mkdirs("/buckets/" + bucket + "/" + tenant + "/ns", 0755);
-        try (var out = new seaweedfs.client.SeaweedOutputStream(raw, "/buckets/" + bucket + "/" + tenant + "/ns/gw.txt")) {
+        try (var out = new SeaweedOutputStream(raw, "/buckets/" + bucket + "/" + tenant + "/ns/gw.txt")) {
             out.write("from-gateway".getBytes(StandardCharsets.UTF_8));
         }
 
