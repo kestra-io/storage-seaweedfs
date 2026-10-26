@@ -10,10 +10,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
 import io.kestra.core.storage.StorageTestSuite;
-import io.kestra.core.storages.StorageInterface;
 
 import io.micronaut.context.annotation.Property;
-import jakarta.inject.Inject;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.extension.ConditionEvaluationResult.disabled;
@@ -30,9 +28,6 @@ class SeaweedFSPrefixedStorageTest extends StorageTestSuite {
         System.setProperty("seaweedfs.filer.host", SeaweedFSTestContainers.getFilerHost());
         System.setProperty("seaweedfs.filer.port", String.valueOf(SeaweedFSTestContainers.getFilerGrpcPort()));
     }
-
-    @Inject
-    StorageInterface storageInterface;
 
     @Test
     void configuredPrefixIsApplied() {

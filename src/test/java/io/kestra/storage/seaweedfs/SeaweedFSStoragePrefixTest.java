@@ -165,6 +165,9 @@ class SeaweedFSStoragePrefixTest {
     @DisplayName("nested prefix and empty/null prefix")
     void nestedAndEmptyPrefix() {
         assertThat(storage("a//b/").getPath("t", URI.create("/f")), is("a/b/t/f"));
+        assertThat(storage("a/./b").getPath("t", URI.create("/f")), is("a/b/t/f"));
+        assertThat(storage(" kestra / x ").getPath("t", URI.create("/f")), is("kestra/x/t/f"));
+        assertThat(storage("/a//b/").getPath(URI.create("/f")), is("a/b/f"));
 
         for (String empty : new String[]{"", "  ", "/", null}) {
             SeaweedFSStorage s = storage(empty);
@@ -191,6 +194,24 @@ class SeaweedFSStoragePrefixTest {
         assertThat(new String(s.get(tenant, "ns", uri).readAllBytes(), StandardCharsets.UTF_8), is("from-gateway"));
         assertThat(s.list(tenant, "ns", URI.create("/ns")).stream().map(FileAttributes::getFileName).toList(), contains("gw.txt"));
         assertThrows(FileNotFoundException.class, () -> storage.get(tenant, "ns", uri));
+    }
+
+    @Test
+    @DisplayName("repeated leading slashes in the URI match core, with and without a prefix")
+    void repeatedLeadingSlashes() {
+        var uri = URI.create("kestra:////x");
+
+        assertThat(storage("").getPath("t", uri), is("t/x"));
+        assertThat(storage("p").getPath("t", uri), is("p/t/x"));
+        assertThat(storage("").getPath(uri), is("/x"));
+        assertThat(storage("p").getPath(uri), is("p/x"));
+    }
+
+    @Test
+    @DisplayName("init() rejects a prefix with backslash '..' segments")
+    void initRejectsBackslashTraversal() {
+        var e = assertThrows(IllegalArgumentException.class, () -> storage("a\\..\\b").init());
+        assertThat(e.getMessage(), containsString("'..' segments are not allowed"));
     }
 
     @Test
