@@ -84,7 +84,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Schema(
         title = "Storage prefix path",
-        description = "The root prefix path for all storage operations (e.g., kestra/). Optional, defaults to no prefix."
+        description = "Folder under which all Kestra data is stored on the filer, for both tenant and instance resources (e.g., `kestra` stores files at `/kestra/<tenant>/...`). It can point at an S3-gateway bucket such as `/buckets/<bucket>`. Optional, defaults to the filer root. Changing it makes existing data under the old location unreachable."
     )
     @Builder.Default
     @PluginProperty(group = "advanced")
@@ -101,11 +101,21 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     @com.fasterxml.jackson.annotation.JsonIgnore
     private transient FilerClient filerClient;
 
+    // Computed lazily because instances are built by Jackson/Lombok, so there is no single constructor hook.
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Getter(AccessLevel.NONE)
+    private transient volatile String normalizedPrefix;
+
     @Override
     public void init() {
         if (filerHost == null || filerHost.isEmpty()) {
             throw new IllegalArgumentException("Filer host must be configured for SeaweedFS storage");
         }
+
+        if (Arrays.asList(normalizedPrefix().split("/")).contains("..")) {
+            throw new IllegalArgumentException("Invalid SeaweedFS prefix '" + prefix + "': '..' segments are not allowed");
+        }
+        log.info("SeaweedFS storage root: /{}", normalizedPrefix());
 
         try {
             registerGrpcProviders();
@@ -124,6 +134,34 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
         if (filerClient != null) {
             filerClient = null;
         }
+    }
+
+    /**
+     * Prefix without surrounding whitespace, leading/trailing or repeated slashes; empty when no prefix is set.
+     */
+    private String normalizedPrefix() {
+        String normalized = this.normalizedPrefix;
+        if (normalized == null) {
+            normalized = prefix == null ? "" : String.join("/", Arrays.stream(prefix.trim().split("/")).filter(part -> !part.isEmpty()).toList());
+            this.normalizedPrefix = normalized;
+        }
+        return normalized;
+    }
+
+    // The prefix must be applied in both overrides: the default tenant variant calls getPath(URI) and would otherwise yield <tenant>/<prefix>/...
+    @Override
+    public String getPath(URI uri) {
+        String path = StorageInterface.super.getPath(uri);
+        String root = normalizedPrefix();
+        return root.isEmpty() ? path : root + "/" + path;
+    }
+
+    @Override
+    public String getPath(String tenantId, URI uri) {
+        String path = StorageInterface.super.getPath(uri);
+        String root = normalizedPrefix();
+        String tenantPath = tenantId + "/" + path;
+        return root.isEmpty() ? tenantPath : root + "/" + tenantPath;
     }
 
     /**
