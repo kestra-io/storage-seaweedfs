@@ -23,7 +23,7 @@ public interface SeaweedFSConfig {
     @PluginProperty(group = "advanced")
     @Schema(
         title = "Storage prefix path",
-        description = "The root prefix path for all storage operations (e.g., kestra/)"
+        description = "Folder under which all Kestra data is stored on the filer, for both tenant and instance resources (e.g., `kestra` stores files at `/kestra/<tenant>/...`). Optional, defaults to the filer root. Changing it makes existing data under the old location unreachable."
     )
     String getPrefix();
 

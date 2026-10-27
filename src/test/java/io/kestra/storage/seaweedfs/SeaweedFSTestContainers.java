@@ -23,7 +23,8 @@ public class SeaweedFSTestContainers {
     // know the mapped port, so clients would get wrong addresses.
     // See: https://github.com/seaweedfs/seaweedfs/issues/438
     public static final int MASTER_PORT = 9333;
-    public static final int VOLUME_PORT = 8080;
+    // 8080 is commonly taken on dev machines, so the volume port is remapped to a free high port.
+    public static final int VOLUME_PORT = 18090;
     // Port 8888 is commonly used by other processes on GitHub-hosted runners,
     // so the filer HTTP port is remapped to a free high port to avoid conflicts.
     public static final int FILER_HTTP_PORT = 18889;

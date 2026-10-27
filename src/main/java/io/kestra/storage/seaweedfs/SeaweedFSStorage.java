@@ -4,6 +4,7 @@ import java.io.*;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +15,7 @@ import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.storages.FileAttributes;
 import io.kestra.core.storages.StorageInterface;
 import io.kestra.core.storages.StorageObject;
+import io.kestra.core.utils.FileUtils;
 
 import io.grpc.LoadBalancerRegistry;
 import io.grpc.NameResolverRegistry;
@@ -84,7 +86,7 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
 
     @Schema(
         title = "Storage prefix path",
-        description = "The root prefix path for all storage operations (e.g., kestra/). Optional, defaults to no prefix."
+        description = "Folder under which all Kestra data is stored on the filer, for both tenant and instance resources (e.g., `kestra` stores files at `/kestra/<tenant>/...`). Optional, defaults to the filer root. Changing it makes existing data under the old location unreachable."
     )
     @Builder.Default
     @PluginProperty(group = "advanced")
@@ -107,10 +109,15 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
             throw new IllegalArgumentException("Filer host must be configured for SeaweedFS storage");
         }
 
+        var root = normalizedPrefix(prefix);
+        if (FileUtils.isParentTraversal(root)) {
+            throw new IllegalArgumentException("Invalid SeaweedFS prefix '" + prefix + "': '..' segments are not allowed");
+        }
+
         try {
             registerGrpcProviders();
             String target = filerHost + ":" + filerPort;
-            log.info("Initializing SeaweedFS storage with filer: {}", target);
+            log.info("Initializing SeaweedFS storage with filer: {}, root: /{}", target, root);
             this.filerClient = new FilerClient(filerHost, filerPort);
             log.info("SeaweedFS storage initialized successfully");
         } catch (Exception e) {
@@ -122,8 +129,46 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
     @Override
     public void close() {
         if (filerClient != null) {
+            try {
+                filerClient.shutdown();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                log.warn("Failed to shut down SeaweedFS filer client", e);
+            }
             filerClient = null;
         }
+    }
+
+    private static String normalizedPrefix(String prefix) {
+        if (prefix == null) {
+            return "";
+        }
+        return Arrays.stream(prefix.split("/"))
+            .map(String::trim)
+            .filter(part -> !part.isEmpty() && !part.equals("."))
+            .collect(Collectors.joining("/"));
+    }
+
+    // Same join formula as core, so an empty prefix yields exactly core's result.
+    private String withRoot(String path) {
+        var root = normalizedPrefix(prefix);
+        if (root.isEmpty()) {
+            return path;
+        }
+        return root + (path.startsWith("/") ? path : "/" + path);
+    }
+
+    // Both overrides apply the prefix: core's tenant variant calls getPath(URI) and would otherwise yield <tenant>/<prefix>/...
+    @Override
+    public String getPath(URI uri) {
+        return withRoot(StorageInterface.super.getPath(uri));
+    }
+
+    @Override
+    public String getPath(String tenantId, URI uri) {
+        var path = StorageInterface.super.getPath(uri);
+        return withRoot(tenantId + (path.startsWith("/") ? path : "/" + path));
     }
 
     /**
