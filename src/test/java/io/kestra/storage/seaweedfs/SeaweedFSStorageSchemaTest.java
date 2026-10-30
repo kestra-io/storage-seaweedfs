@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import io.kestra.core.docs.JsonSchemaGenerator;
 import io.kestra.core.junit.annotations.KestraTest;
+import io.kestra.core.storages.StorageInterface;
 
 import jakarta.inject.Inject;
 
@@ -21,9 +22,8 @@ class SeaweedFSStorageSchemaTest {
     @SuppressWarnings("unchecked")
     @Test
     void schema() {
-        var schema = jsonSchemaGenerator.schemas(SeaweedFSStorage.class, false);
+        var schema = jsonSchemaGenerator.properties(StorageInterface.class, SeaweedFSStorage.class);
 
-        var definition = (Map<String, Object>) ((Map<String, Object>) schema.get("definitions")).get(SeaweedFSStorage.class.getName());
-        assertThat((List<String>) definition.get("required"), containsInAnyOrder("filerHost"));
+        assertThat((List<String>) schema.get("required"), containsInAnyOrder("filerHost"));
     }
 }
