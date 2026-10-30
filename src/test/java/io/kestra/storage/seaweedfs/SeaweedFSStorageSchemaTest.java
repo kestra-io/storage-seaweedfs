@@ -11,7 +11,7 @@ import io.kestra.core.junit.annotations.KestraTest;
 import jakarta.inject.Inject;
 
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.hasItems;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 
 @KestraTest
 class SeaweedFSStorageSchemaTest {
@@ -24,6 +24,6 @@ class SeaweedFSStorageSchemaTest {
         var schema = jsonSchemaGenerator.schemas(SeaweedFSStorage.class, false);
 
         var definition = (Map<String, Object>) ((Map<String, Object>) schema.get("definitions")).get(SeaweedFSStorage.class.getName());
-        assertThat((List<String>) definition.get("required"), hasItems("filerHost"));
+        assertThat((List<String>) definition.get("required"), containsInAnyOrder("filerHost"));
     }
 }

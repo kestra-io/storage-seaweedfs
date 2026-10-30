@@ -3,7 +3,7 @@ package io.kestra.storage.seaweedfs;
 import io.kestra.core.models.annotations.PluginProperty;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotBlank;
 
 public interface SeaweedFSConfig {
 
@@ -12,7 +12,7 @@ public interface SeaweedFSConfig {
         title = "SeaweedFS Filer server host",
         description = "The hostname or IP address of the SeaweedFS filer server (e.g., localhost)"
     )
-    @NotNull
+    @NotBlank
     String getFilerHost();
 
     @PluginProperty(group = "connection")
