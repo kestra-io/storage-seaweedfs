@@ -1053,6 +1053,8 @@ public class SeaweedFSStorage implements StorageInterface, SeaweedFSConfig {
                     moveSingleFile(getPath(tenantId, fileUri), getPath(tenantId, destFileUri));
                 }
                 deleteByPrefix(tenantId, namespace, from);
+                // deleteByPrefix skips its parent cleanup when nothing is left under the prefix
+                filerClient.rm(sourcePath, false, false);
             } else {
                 moveSingleFile(sourcePath, destPath);
             }
