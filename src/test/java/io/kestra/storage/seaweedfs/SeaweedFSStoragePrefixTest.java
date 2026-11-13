@@ -120,6 +120,7 @@ class SeaweedFSStoragePrefixTest {
         storage.put(tenant, "ns", URI.create("/ns/d1/f.txt"), data("y"));
         storage.move(tenant, "ns", URI.create("/ns/d1"), URI.create("/ns/d2"));
         assertTrue(existsOnFiler(root + "/ns/d2/f.txt"));
+        assertFalse(existsOnFiler("%s/ns/d1".formatted(root)));
         assertFalse(existsOnFiler("/" + tenant));
 
         assertTrue(storage.delete(tenant, "ns", URI.create("/ns/dst.txt")));
@@ -129,6 +130,60 @@ class SeaweedFSStoragePrefixTest {
         assertThat(deleted, hasItem(URI.create("kestra:///ns/d2/f.txt")));
         deleted.forEach(u -> assertThat(u.toString(), not(containsString(PREFIX))));
         assertFalse(existsOnFiler(root + "/ns/d2/f.txt"));
+    }
+
+    @Test
+    @DisplayName("moving a directory of files removes the empty source directory and keeps its siblings")
+    void moveDirectoryRemovesSource() throws Exception {
+        var tenant = IdUtils.create();
+        var root = "/%s/%s".formatted(PREFIX, tenant);
+
+        storage.put(tenant, "ns", URI.create("/ns/ext/one.txt"), data("one"));
+        storage.put(tenant, "ns", URI.create("/ns/ext/two.txt"), data("two"));
+        storage.put(tenant, "ns", URI.create("/ns/keep/other.txt"), data("other"));
+
+        storage.move(tenant, "ns", URI.create("/ns/ext"), URI.create("/moved/ext"));
+
+        assertTrue(existsOnFiler("%s/moved/ext/two.txt".formatted(root)));
+        try (var in = storage.get(tenant, "ns", URI.create("/moved/ext/one.txt"))) {
+            assertThat(new String(in.readAllBytes(), StandardCharsets.UTF_8), is("one"));
+        }
+
+        assertFalse(existsOnFiler("%s/ns/ext".formatted(root)));
+        var parent = storage.allByPrefix(tenant, "ns", URI.create("/ns/"), true);
+        assertThat(parent, not(hasItem(URI.create("kestra:///ns/ext/"))));
+
+        assertTrue(existsOnFiler("%s/ns/keep/other.txt".formatted(root)));
+        assertTrue(existsOnFiler("%s/ns".formatted(root)));
+    }
+
+    @Test
+    @DisplayName("moving a directory with a nested directory still removes the source directory")
+    void moveNestedDirectoryRemovesSource() throws Exception {
+        var tenant = IdUtils.create();
+        var root = "/%s/%s".formatted(PREFIX, tenant);
+
+        storage.put(tenant, "ns", URI.create("/ns/ext/sub/new.txt"), data("new"));
+
+        storage.move(tenant, "ns", URI.create("/ns/ext"), URI.create("/moved/ext"));
+
+        assertTrue(existsOnFiler("%s/moved/ext/sub/new.txt".formatted(root)));
+        assertFalse(existsOnFiler("%s/ns/ext/sub".formatted(root)));
+        assertFalse(existsOnFiler("%s/ns/ext".formatted(root)));
+    }
+
+    @Test
+    @DisplayName("moving an empty directory also removes the source directory")
+    void moveEmptyDirectoryRemovesSource() throws Exception {
+        var tenant = IdUtils.create();
+        var root = "/%s/%s".formatted(PREFIX, tenant);
+
+        storage.createDirectory(tenant, "ns", URI.create("/ns/emptysrc"));
+        assertTrue(existsOnFiler("%s/ns/emptysrc".formatted(root)));
+
+        storage.move(tenant, "ns", URI.create("/ns/emptysrc"), URI.create("/ns/emptydst"));
+
+        assertFalse(existsOnFiler("%s/ns/emptysrc".formatted(root)));
     }
 
     @Test
